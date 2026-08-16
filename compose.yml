@@ -59,6 +59,20 @@ services:
     depends_on:
       - backend
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8080:80"
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+    depends_on:
+      - frontend
+      - backend
+
 volumes:
   postgres_data:
   frontend_node_modules:

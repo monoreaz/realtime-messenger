@@ -24,7 +24,11 @@ export interface Message {
     created_at: string;
 }
 
-const API_BASE_URL = `http://${window.location.hostname}:8000`;
+const isDevelopmentServer = window.location.port === "5173";
+
+const API_BASE_URL = isDevelopmentServer
+    ? `http://${window.location.hostname}:8000`
+    : "/api";
 
 
 async function getErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -203,7 +207,11 @@ export async function sendMessage(token: string, chatId: string, content: string
 export function createWebSocket(): WebSocket {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
 
+    const host = isDevelopmentServer
+        ? `${window.location.hostname}:8000`
+        : window.location.host;
+
     return new WebSocket(
-        `${protocol}://${window.location.hostname}:8000/ws`,
+        `${protocol}://${host}/ws`,
     );
 }
