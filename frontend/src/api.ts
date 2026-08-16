@@ -215,3 +215,43 @@ export function createWebSocket(): WebSocket {
         `${protocol}://${host}/ws`,
     );
 }
+
+export interface LastMessage {
+    id: string;
+    sender_id: string;
+    content: string;
+    created_at: string;
+}
+
+export interface Chat {
+    id: string;
+    type: string;
+    peer: User;
+    created_at: string;
+    last_message: LastMessage | null;
+    unread_count: number;
+}
+
+export async function markChatRead(
+    token: string,
+    chatId: string,
+): Promise<void> {
+    const response = await fetch(
+        `${API_BASE_URL}/chats/${chatId}/read`,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not mark chat as read",
+            ),
+        );
+    }
+}

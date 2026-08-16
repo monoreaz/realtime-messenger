@@ -67,3 +67,9 @@ class ChatMember(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+    last_read_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )

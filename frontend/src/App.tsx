@@ -14,6 +14,7 @@ import {
     type Chat,
     type Message,
     type User,
+    markChatRead,
 } from "./api";
 
 import "./App.css";
@@ -22,6 +23,22 @@ import "./App.css";
 type AuthMode = "login" | "register";
 type WebSocketStatus = "connecting" | "connected" | "disconnected";
 
+function sortChats(chats: Chat[]): Chat[] {
+    return [...chats].sort((firstChat, secondChat) => {
+        const firstDate =
+            firstChat.last_message?.created_at ??
+            firstChat.created_at;
+
+        const secondDate =
+            secondChat.last_message?.created_at ??
+            secondChat.created_at;
+
+        return (
+            new Date(secondDate).getTime() -
+            new Date(firstDate).getTime()
+        );
+    });
+}
 
 function App() {
     const [token, setToken] = useState<string | null>(
@@ -126,13 +143,44 @@ function App() {
             if (data.type === "message.new") {
                 const incomingMessage = data.message as Message;
 
-                if (incomingMessage.chat_id !== activeChatIdRef.current) {
+                const isActiveChat =
+                    incomingMessage.chat_id === activeChatIdRef.current;
+
+                setChats((currentChats) => {
+                    const updatedChats = currentChats.map((chat) => {
+                        if (chat.id !== incomingMessage.chat_id) {
+                            return chat;
+                        }
+
+                        const shouldIncreaseUnread =
+                            incomingMessage.sender_id !== user.id &&
+                            !isActiveChat;
+
+                        return {
+                            ...chat,
+                            last_message: {
+                                id: incomingMessage.id,
+                                sender_id: incomingMessage.sender_id,
+                                content: incomingMessage.content,
+                                created_at: incomingMessage.created_at,
+                            },
+                            unread_count: shouldIncreaseUnread
+                                ? chat.unread_count + 1
+                                : chat.unread_count,
+                        };
+                    });
+
+                    return sortChats(updatedChats);
+                });
+
+                if (!isActiveChat) {
                     return;
                 }
 
                 setMessages((currentMessages) => {
                     const alreadyExists = currentMessages.some(
-                        (message) => message.id === incomingMessage.id,
+                        (message) =>
+                            message.id === incomingMessage.id,
                     );
 
                     if (alreadyExists) {
@@ -144,6 +192,13 @@ function App() {
                         incomingMessage,
                     ];
                 });
+
+                if (incomingMessage.sender_id !== user.id) {
+                    void markChatRead(
+                        token,
+                        incomingMessage.chat_id,
+                    );
+                }
             }
         });
 
@@ -218,6 +273,22 @@ function App() {
             );
 
             setMessages(chatMessages);
+            
+            await markChatRead(
+                currentToken,
+                chat.id,
+            );
+
+            setChats((currentChats) =>
+                currentChats.map((currentChat) =>
+                    currentChat.id === chat.id
+                        ? {
+                              ...currentChat,
+                              unread_count: 0,
+                          }
+                        : currentChat,
+                ),
+            );
         } catch (caughtError) {
             if (caughtError instanceof Error) {
                 setError(caughtError.message);
@@ -361,7 +432,10 @@ function App() {
         setSearchQuery("");
         setWsStatus("disconnected");
     }
-
+      function closeChat() {
+          setActiveChat(null);
+          setMessages([]);
+      }
 
     function formatTime(date: string) {
         return new Date(date).toLocaleTimeString([], {
@@ -433,7 +507,7 @@ function App() {
 
 
     return (
-        <main className="messenger">
+        <main className={`messenger ${activeChat ? "chat-open" : ""}`}>
             <aside className="sidebar">
                 <header className="sidebar-header">
                     <div className="current-user">
@@ -498,9 +572,40 @@ function App() {
                                 </div>
 
                                 <div className="chat-info">
-                                    <strong>{chat.peer.username}</strong>
-                                    <span>Private chat</span>
-                                </div>
+                                  <div className="chat-title-row">
+                                      <strong>
+                                          {chat.peer.username}
+                                      </strong>
+
+                                      {chat.last_message && (
+                                          <span className="chat-time">
+                                              {formatTime(
+                                                  chat.last_message.created_at,
+                                              )}
+                                          </span>
+                                      )}
+                                  </div>
+
+                                  <div className="chat-preview-row">
+                                      <span className="chat-preview">
+                                          {chat.last_message
+                                              ? `${
+                                                    chat.last_message.sender_id === user.id
+                                                        ? "You: "
+                                                        : ""
+                                                }${chat.last_message.content}`
+                                              : "No messages yet"}
+                                      </span>
+
+                                      {chat.unread_count > 0 && (
+                                          <span className="unread-badge">
+                                              {chat.unread_count > 99
+                                                  ? "99+"
+                                                  : chat.unread_count}
+                                          </span>
+                                      )}
+                                  </div>
+                              </div>
                             </button>
                         ))
                     )}
@@ -511,6 +616,9 @@ function App() {
                 {activeChat ? (
                     <>
                         <header className="chat-header">
+                          <button className="mobile-back-button" type="button" onClick={closeChat} aria-label="Back to chats">
+                              ←
+                          </button>
                             <div className="chat-avatar">
                                 {activeChat.peer.username.charAt(0).toUpperCase()}
                             </div>

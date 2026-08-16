@@ -129,7 +129,7 @@ button {
 
 .messenger {
     width: 100vw;
-    height: 100vh;
+    height: 100dvh;
     display: flex;
     overflow: hidden;
     background: #0e1621;
@@ -323,7 +323,7 @@ button {
 }
 
 .chat-info span {
-    color: #8e9ba7;
+    color: #ffffff;
     font-size: 13px;
 }
 
@@ -513,16 +513,278 @@ button {
 }
 
 @media (max-width: 720px) {
+    .messenger {
+        position: relative;
+        width: 100%;
+        height: 100dvh;
+        overflow: hidden;
+    }
+
+    /*
+     * Chat list takes the entire screen by default.
+     */
     .sidebar {
-        width: 280px;
-        min-width: 280px;
+        width: 100%;
+        min-width: 100%;
+        height: 100dvh;
+        border-right: 0;
+    }
+
+    /*
+     * Chat is hidden until one is selected.
+     */
+    .chat-panel {
+        display: none;
+        width: 100%;
+        min-width: 100%;
+        height: 100dvh;
+    }
+
+    /*
+     * When a chat is opened, hide the sidebar and show the chat.
+     */
+    .messenger.chat-open .sidebar {
+        display: none;
+    }
+
+    .messenger.chat-open .chat-panel {
+        display: flex;
+    }
+
+    .sidebar-header {
+        height: 64px;
+        flex: 0 0 64px;
+        padding: 9px 12px;
+    }
+
+    .current-user {
+        min-width: 0;
+    }
+
+    .small-avatar {
+        width: 40px;
+        height: 40px;
+    }
+
+    .logout-button {
+        padding: 7px 8px;
+        font-size: 13px;
+    }
+
+    .search-area {
+        padding: 10px;
+    }
+
+    .search-form {
+        gap: 6px;
+    }
+
+    .search-form input {
+        height: 42px;
+        padding: 9px 12px;
+
+        /*
+         * Prevents Safari from zooming when focusing an input.
+         */
+        font-size: 16px;
+    }
+
+    .search-form button {
+        height: 42px;
+        padding: 0 12px;
+    }
+
+    .search-results {
+        top: 59px;
+        left: 10px;
+        right: 10px;
+    }
+
+    .chat-item {
+        min-height: 68px;
+        padding: 10px 12px;
+    }
+
+    .chat-avatar {
+        width: 46px;
+        height: 46px;
+    }
+
+    .chat-info {
+        min-width: 0;
+    }
+
+    .chat-title-row strong {
+        font-size: 15px;
+    }
+
+    .chat-preview {
+        font-size: 13px;
+    }
+
+    .chat-header {
+        height: 64px;
+        flex: 0 0 64px;
+        gap: 9px;
+        padding: 8px 12px;
+    }
+
+    .chat-header .chat-avatar {
+        width: 40px;
+        height: 40px;
+    }
+
+    .mobile-back-button {
+        width: 38px;
+        height: 38px;
+        flex: 0 0 38px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        padding: 0;
+
+        border: 0;
+        border-radius: 50%;
+
+        background: transparent;
+        color: #ffffff;
+
+        font-size: 24px;
+    }
+
+    .mobile-back-button:active {
+        background: #202b36;
     }
 
     .messages {
-        padding: 18px;
+        padding: 14px 10px;
+    }
+
+    .message-row {
+        margin-bottom: 6px;
     }
 
     .message-bubble {
         max-width: 85%;
+        padding: 8px 10px 6px;
+
+        border-radius: 13px 13px 13px 4px;
+
+        font-size: 15px;
+        line-height: 1.35;
+    }
+
+    .message-row.own .message-bubble {
+        border-radius: 13px 13px 4px 13px;
+    }
+
+    .message-time {
+        margin-top: 3px;
+        font-size: 10px;
+    }
+
+    .message-form {
+        gap: 8px;
+
+        padding:
+            9px
+            10px
+            calc(9px + env(safe-area-inset-bottom));
+    }
+
+    .message-form input {
+        height: 44px;
+        padding: 10px 14px;
+
+        /*
+         * 16px avoids automatic zoom on iPhone.
+         */
+        font-size: 16px;
+    }
+
+    .message-form button {
+        width: 44px;
+        height: 44px;
+        flex: 0 0 44px;
+    }
+
+    .global-error {
+        right: 10px;
+        bottom: calc(
+            72px + env(safe-area-inset-bottom)
+        );
+        left: 10px;
+
+        max-width: none;
+    }
+
+    .no-chat-selected {
+        display: none;
     }
 }
+
+.chat-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.chat-title-row,
+.chat-preview-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.chat-title-row strong,
+.chat-preview {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-time {
+    flex: 0 0 auto;
+    color: #70808f;
+    font-size: 11px;
+}
+
+.chat-preview-row {
+    margin-top: 4px;
+}
+
+.chat-preview {
+    color: #8e9ba7;
+    font-size: 13px;
+}
+
+.unread-badge {
+    min-width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: #3390ec;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.chat-item.active .chat-time,
+.chat-item.active .chat-preview {
+    color: #e7e9eb;
+}
+
+.chat-item.active .unread-badge {
+    background: #ffffff;
+    color: #2b5278;
+}
+.mobile-back-button {
+    display: none;
+}
+
