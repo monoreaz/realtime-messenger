@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pwdlib[argon2]
+pyjwt
+python-multipart
+websockets
