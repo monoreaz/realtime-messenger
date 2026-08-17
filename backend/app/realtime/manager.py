@@ -10,11 +10,21 @@ class ConnectionManager:
             list[WebSocket],
         ] = {}
 
+    def is_online(
+        self,
+        user_id: uuid.UUID,
+    ) -> bool:
+        return bool(
+            self.active_connections.get(user_id)
+        )
+
     def connect(
         self,
         user_id: uuid.UUID,
         websocket: WebSocket,
-    ) -> None:
+    ) -> bool:
+        was_offline = not self.is_online(user_id)
+
         connections = self.active_connections.setdefault(
             user_id,
             [],
@@ -22,26 +32,32 @@ class ConnectionManager:
 
         connections.append(websocket)
 
+        return was_offline
+
     def disconnect(
         self,
         user_id: uuid.UUID,
         websocket: WebSocket,
-    ) -> None:
+    ) -> bool:
         connections = self.active_connections.get(
             user_id
         )
 
         if connections is None:
-            return
+            return False
 
         if websocket in connections:
             connections.remove(websocket)
 
-        if not connections:
-            self.active_connections.pop(
-                user_id,
-                None,
-            )
+        if connections:
+            return False
+
+        self.active_connections.pop(
+            user_id,
+            None,
+        )
+
+        return True
 
     async def send_to_user(
         self,
