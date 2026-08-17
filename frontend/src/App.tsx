@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type {
+    ChangeEvent,
+    FormEvent,
+} from "react";
 
 import {
     createPrivateChat,
@@ -68,10 +71,109 @@ function App() {
     const [error, setError] = useState("");
     const [wsStatus, setWsStatus] = useState<WebSocketStatus>("disconnected");
 
+    const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(
+    () => new Set(),
+        );
+
+    const [typingUserIds, setTypingUserIds] = useState<Set<string>>(
+        () => new Set(),
+    );
+
     const activeChatIdRef = useRef<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
+    const websocketRef = useRef<WebSocket | null>(null);
 
+    const typingTimeoutRef = useRef<
+        ReturnType<typeof setTimeout> | null
+    >(null);
+
+    const typingChatIdRef = useRef<string | null>(
+        null
+    );
+
+    function sendWebSocketEvent(
+        data: Record<string, unknown>,
+    ) {
+        const websocket = websocketRef.current;
+
+        if (
+            !websocket ||
+            websocket.readyState !== WebSocket.OPEN
+        ) {
+            return;
+        }
+
+        websocket.send(
+            JSON.stringify(data),
+        );
+    }
+
+
+    function stopTyping() {
+        if (typingTimeoutRef.current) {
+            clearTimeout(
+                typingTimeoutRef.current,
+            );
+
+            typingTimeoutRef.current = null;
+        }
+
+        if (typingChatIdRef.current) {
+            sendWebSocketEvent({
+                type: "typing.stop",
+                chat_id: typingChatIdRef.current,
+            });
+
+            typingChatIdRef.current = null;
+        }
+    }
+
+
+    function handleMessageInputChange(
+        event: ChangeEvent<HTMLInputElement>,
+    ) {
+        const value = event.target.value;
+
+        setMessageInput(value);
+
+        if (!activeChat) {
+            return;
+        }
+
+        if (!value.trim()) {
+            stopTyping();
+            return;
+        }
+
+        if (
+            typingChatIdRef.current !== activeChat.id
+        ) {
+            stopTyping();
+
+            typingChatIdRef.current =
+                activeChat.id;
+
+            sendWebSocketEvent({
+                type: "typing.start",
+                chat_id: activeChat.id,
+            });
+        }
+
+        if (typingTimeoutRef.current) {
+            clearTimeout(
+                typingTimeoutRef.current,
+            );
+        }
+
+        typingTimeoutRef.current = setTimeout(
+            () => {
+                stopTyping();
+            },
+            1800,
+        );
+    }
+    
     useEffect(() => {
         activeChatIdRef.current = activeChat?.id ?? null;
     }, [activeChat]);
@@ -119,9 +221,11 @@ function App() {
             return;
         }
 
-        const websocket = createWebSocket();
+    const websocket = createWebSocket();
 
-        setWsStatus("connecting");
+    websocketRef.current = websocket;
+
+    setWsStatus("connecting");
 
         websocket.addEventListener("open", () => {
             websocket.send(
@@ -140,9 +244,110 @@ function App() {
                 return;
             }
 
+            if (data.type === "presence.snapshot") {
+                setOnlineUserIds(
+                    new Set(
+                        data.online_user_ids as string[],
+                    ),
+                );
+
+                return;
+            }
+
+
+            if (data.type === "presence.online") {
+                setOnlineUserIds((current) => {
+                    const updated = new Set(current);
+
+                    updated.add(data.user_id);
+
+                    return updated;
+                });
+
+                return;
+            }
+
+
+            if (data.type === "presence.offline") {
+                setOnlineUserIds((current) => {
+                    const updated = new Set(current);
+
+                    updated.delete(data.user_id);
+
+                    return updated;
+                });
+
+                setTypingUserIds((current) => {
+                    const updated = new Set(current);
+
+                    updated.delete(data.user_id);
+
+                    return updated;
+                });
+
+                return;
+            }
+
+
+            if (data.type === "presence.state") {
+                setOnlineUserIds((current) => {
+                    const updated = new Set(current);
+
+                    if (data.online) {
+                        updated.add(data.user_id);
+                    } else {
+                        updated.delete(data.user_id);
+                    }
+
+                    return updated;
+                });
+
+                return;
+            }
+
+
+            if (data.type === "typing.start") {
+                if (
+                    data.chat_id ===
+                    activeChatIdRef.current
+                ) {
+                    setTypingUserIds((current) => {
+                        const updated = new Set(current);
+
+                        updated.add(data.user_id);
+
+                        return updated;
+                    });
+                }
+
+                return;
+            }
+
+
+            if (data.type === "typing.stop") {
+                setTypingUserIds((current) => {
+                    const updated = new Set(current);
+
+                    updated.delete(data.user_id);
+
+                    return updated;
+                });
+
+                return;
+            }
+
             if (data.type === "message.new") {
                 const incomingMessage = data.message as Message;
+                
+                setTypingUserIds((current) => {
+                    const updated = new Set(current);
 
+                    updated.delete(
+                        incomingMessage.sender_id,
+                    );
+
+                    return updated;
+                });
                 const isActiveChat =
                     incomingMessage.chat_id === activeChatIdRef.current;
 
@@ -211,7 +416,15 @@ function App() {
         });
 
         return () => {
+            stopTyping();
+
             websocket.close();
+
+            if (
+                websocketRef.current === websocket
+            ) {
+                websocketRef.current = null;
+            }
         };
     }, [token, user]);
 
@@ -263,6 +476,16 @@ function App() {
         }
 
         setActiveChat(chat);
+
+        setTypingUserIds(
+            new Set(),
+        );
+
+        sendWebSocketEvent({
+            type: "presence.get",
+            user_id: chat.peer.id,
+        });
+
         setMessagesLoading(true);
         setError("");
 
@@ -381,6 +604,8 @@ function App() {
         if (!content) {
             return;
         }
+
+        stopTyping();
 
         setSending(true);
         setError("");
@@ -624,8 +849,33 @@ function App() {
                             </div>
 
                             <div>
-                                <strong>{activeChat.peer.username}</strong>
-                                <span>Private chat</span>
+                                <strong>
+                                    {activeChat.peer.username}
+                                </strong>
+
+                                <span
+                                    className={
+                                        typingUserIds.has(
+                                            activeChat.peer.id,
+                                        )
+                                            ? "peer-status typing"
+                                            : onlineUserIds.has(
+                                                activeChat.peer.id,
+                                            )
+                                            ? "peer-status online"
+                                            : "peer-status"
+                                    }
+                                >
+                                    {typingUserIds.has(
+                                        activeChat.peer.id,
+                                    )
+                                        ? "typing..."
+                                        : onlineUserIds.has(
+                                            activeChat.peer.id,
+                                        )
+                                        ? "Online"
+                                        : "Offline"}
+                                </span>
                             </div>
                         </header>
 
@@ -662,8 +912,14 @@ function App() {
                         </div>
 
                         <form className="message-form" onSubmit={handleSendMessage}>
-                            <input type="text" placeholder="Write a message..." value={messageInput} onChange={(event) => setMessageInput(event.target.value)} maxLength={4000} autoComplete="off" />
-
+                            <input
+                                type="text"
+                                placeholder="Write a message..."
+                                value={messageInput}
+                                onChange={handleMessageInputChange}
+                                maxLength={4000}
+                                autoComplete="off"
+                            />
                             <button type="submit" disabled={sending || !messageInput.trim()}>
                                 ➤
                             </button>

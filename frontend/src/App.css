@@ -788,3 +788,15 @@ button {
     display: none;
 }
 
+.peer-status {
+    color: #8e9ba7;
+    font-size: 13px;
+}
+
+.peer-status.online {
+    color: #55c98b;
+}
+
+.peer-status.typing {
+    color: #3390ec;
+}
