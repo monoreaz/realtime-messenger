@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type {
     ChangeEvent,
     FormEvent,
@@ -669,6 +669,39 @@ function App() {
         });
     }
 
+    function isSameDay(firstDate: string | Date, secondDate: string | Date) {
+        const first = new Date(firstDate);
+        const second = new Date(secondDate);
+
+        return (
+            first.getFullYear() === second.getFullYear() &&
+            first.getMonth() === second.getMonth() &&
+            first.getDate() === second.getDate()
+        );
+    }
+
+
+    function formatMessageDate(date: string) {
+        const messageDate = new Date(date);
+        const today = new Date();
+
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+
+        if (isSameDay(messageDate, today)) {
+            return "Today";
+        }
+
+        if (isSameDay(messageDate, yesterday)) {
+            return "Yesterday";
+        }
+
+        return messageDate.toLocaleDateString([], {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+        });
+    }
 
     if (!token) {
         return (
@@ -889,21 +922,52 @@ function App() {
                                     No messages yet. Say hello.
                                 </div>
                             ) : (
-                                messages.map((message) => {
-                                    const isOwnMessage = message.sender_id === user.id;
+                                messages.map((message, index) => {
+                                    const isOwnMessage =
+                                        message.sender_id === user.id;
+
+                                    const previousMessage =
+                                        index > 0
+                                            ? messages[index - 1]
+                                            : null;
+
+                                    const showDate =
+                                        !previousMessage ||
+                                        !isSameDay(
+                                            previousMessage.created_at,
+                                            message.created_at,
+                                        );
 
                                     return (
-                                        <div className={`message-row ${isOwnMessage ? "own" : ""}`} key={message.id}>
-                                            <div className="message-bubble">
-                                                <div className="message-content">
-                                                    {message.content}
+                                        <Fragment key={message.id}>
+                                            {showDate && (
+                                                <div className="message-date">
+                                                    <span>
+                                                        {formatMessageDate(
+                                                            message.created_at,
+                                                        )}
+                                                    </span>
                                                 </div>
+                                            )}
 
-                                                <span className="message-time">
-                                                    {formatTime(message.created_at)}
-                                                </span>
+                                            <div
+                                                className={`message-row ${
+                                                    isOwnMessage ? "own" : ""
+                                                }`}
+                                            >
+                                                <div className="message-bubble">
+                                                    <div className="message-content">
+                                                        {message.content}
+                                                    </div>
+
+                                                    <span className="message-time">
+                                                        {formatTime(
+                                                            message.created_at,
+                                                        )}
+                                                    </span>
+                                                </div>
                                             </div>
-                                        </div>
+                                        </Fragment>
                                     );
                                 })
                             )}

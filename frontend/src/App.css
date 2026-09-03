@@ -389,6 +389,22 @@ button {
     margin-bottom: 8px;
 }
 
+.message-date {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 18px 0 14px;
+}
+
+.message-date span {
+    padding: 5px 12px;
+    border-radius: 14px;
+    background: #182533;
+    color: #9eacb8;
+    font-size: 12px;
+    font-weight: 500;
+}
+
 .message-row.own {
     justify-content: flex-end;
 }
@@ -513,6 +529,16 @@ button {
 }
 
 @media (max-width: 720px) {
+
+    .message-date {
+    margin: 14px 0 10px;
+    }
+
+    .message-date span {
+        padding: 4px 10px;
+        font-size: 11px;
+    }
+
     .messenger {
         position: relative;
         width: 100%;
