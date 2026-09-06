@@ -14,6 +14,9 @@ export interface Chat {
     type: string;
     peer: User;
     created_at: string;
+    last_message: LastMessage | null;
+    unread_count: number;
+    peer_last_read_at: string | null;
 }
 
 export interface Message {

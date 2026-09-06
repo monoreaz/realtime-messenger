@@ -21,7 +21,7 @@ from app.models.message import Message
 from app.models.user import User
 from app.schemas.chat import ChatResponse, LastMessageResponse
 from app.schemas.user import UserResponse
-
+from app.realtime.manager import manager
 
 router = APIRouter(
     prefix="/chats",
@@ -85,6 +85,15 @@ async def build_chat_response(
 
     membership = membership_result.scalar_one()
 
+    peer_membership_result = await db.execute(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat.id,
+            ChatMember.user_id == peer.id,
+        )
+    )
+
+    peer_membership = peer_membership_result.scalar_one()
+
     unread_conditions = [
         Message.chat_id == chat.id,
         Message.sender_id != current_user_id,
@@ -122,6 +131,7 @@ async def build_chat_response(
         created_at=chat.created_at,
         last_message=last_message_response,
         unread_count=unread_count,
+        peer_last_read_at=peer_membership.last_read_at,
     )
 
 
@@ -325,11 +335,39 @@ async def mark_chat_read(
             detail="Chat not found",
         )
 
-    membership.last_read_at = datetime.now(
+    read_at = datetime.now(
         timezone.utc
     )
 
+    membership.last_read_at = read_at
+
+    members_result = await db.execute(
+        select(ChatMember.user_id).where(
+            ChatMember.chat_id == chat_id,
+        )
+    )
+
+    member_ids = list(
+        members_result.scalars().all()
+    )
+
+    recipient_ids = [
+        member_id
+        for member_id in member_ids
+        if member_id != current_user.id
+    ]
+
     await db.commit()
+
+    await manager.send_to_users(
+        recipient_ids,
+        {
+            "type": "chat.read",
+            "chat_id": str(chat_id),
+            "user_id": str(current_user.id),
+            "read_at": read_at.isoformat(),
+        },
+    )
 
     return Response(
         status_code=status.HTTP_204_NO_CONTENT

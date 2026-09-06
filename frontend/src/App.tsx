@@ -336,6 +336,35 @@ function App() {
                 return;
             }
 
+            if (data.type === "chat.read") {
+                setChats((currentChats) =>
+                    currentChats.map((chat) =>
+                        chat.id === data.chat_id
+                            ? {
+                                ...chat,
+                                peer_last_read_at: data.read_at,
+                            }
+                            : chat,
+                    ),
+                );
+
+                setActiveChat((currentChat) => {
+                    if (
+                        !currentChat ||
+                        currentChat.id !== data.chat_id
+                    ) {
+                        return currentChat;
+                    }
+
+                    return {
+                        ...currentChat,
+                        peer_last_read_at: data.read_at,
+                    };
+                });
+
+                return;
+            }
+
             if (data.type === "message.new") {
                 const incomingMessage = data.message as Message;
                 
@@ -926,6 +955,14 @@ function App() {
                                     const isOwnMessage =
                                         message.sender_id === user.id;
 
+                                    const isRead =
+                                        isOwnMessage &&
+                                        activeChat.peer_last_read_at !== null &&
+                                        new Date(message.created_at).getTime() <=
+                                            new Date(
+                                                activeChat.peer_last_read_at,
+                                            ).getTime();
+
                                     const previousMessage =
                                         index > 0
                                             ? messages[index - 1]
@@ -960,11 +997,28 @@ function App() {
                                                         {message.content}
                                                     </div>
 
-                                                    <span className="message-time">
-                                                        {formatTime(
-                                                            message.created_at,
+                                                    <div className="message-meta">
+                                                        <span className="message-time">
+                                                            {formatTime(
+                                                                message.created_at,
+                                                            )}
+                                                        </span>
+
+                                                        {isOwnMessage && (
+                                                            <span
+                                                                className={`message-receipt ${
+                                                                    isRead ? "read" : ""
+                                                                }`}
+                                                                title={
+                                                                    isRead
+                                                                        ? "Read"
+                                                                        : "Sent"
+                                                                }
+                                                            >
+                                                                {isRead ? "✓✓" : "✓"}
+                                                            </span>
                                                         )}
-                                                    </span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </Fragment>

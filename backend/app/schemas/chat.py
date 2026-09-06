@@ -20,3 +20,4 @@ class ChatResponse(BaseModel):
     created_at: datetime
     last_message: LastMessageResponse | None = None
     unread_count: int = 0
+    peer_last_read_at: datetime | None = None

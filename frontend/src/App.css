@@ -427,12 +427,27 @@ button {
     white-space: pre-wrap;
 }
 
-.message-time {
-    display: block;
+.message-meta {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
     margin-top: 4px;
+}
+
+.message-time {
     color: #8495a3;
     font-size: 11px;
-    text-align: right;
+}
+
+.message-receipt {
+    color: #b6d0e7;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.message-receipt.read {
+    color: #69b7ff;
 }
 
 .message-row.own .message-time {
@@ -706,9 +721,16 @@ button {
         border-radius: 13px 13px 4px 13px;
     }
 
+    .message-meta {
+    margin-top: 3px;
+    }
+
     .message-time {
-        margin-top: 3px;
         font-size: 10px;
+    }
+
+    .message-receipt {
+        font-size: 11px;
     }
 
     .message-form {
