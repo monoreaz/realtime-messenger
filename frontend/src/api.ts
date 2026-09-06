@@ -1,6 +1,9 @@
 export interface User {
     id: string;
     username: string;
+    display_name: string | null;
+    bio: string | null;
+    avatar_url: string | null;
     created_at: string;
 }
 
@@ -111,6 +114,126 @@ export async function getCurrentUser(token: string): Promise<User> {
     return response.json();
 }
 
+    export interface ProfileUpdate {
+        username: string;
+        display_name: string | null;
+        bio: string | null;
+    }
+
+
+    export async function updateProfile(
+        token: string,
+        profile: ProfileUpdate,
+    ): Promise<User> {
+        const response = await fetch(
+            `${API_BASE_URL}/users/me`,
+            {
+                method: "PATCH",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(profile),
+            },
+        );
+
+        if (!response.ok) {
+            throw new Error(
+                await getErrorMessage(
+                    response,
+                    "Could not update profile",
+                ),
+            );
+        }
+
+        return response.json();
+    }
+
+
+    export async function uploadAvatar(
+        token: string,
+        file: File,
+    ): Promise<User> {
+        const formData = new FormData();
+
+        formData.append(
+            "file",
+            file,
+        );
+
+        const response = await fetch(
+            `${API_BASE_URL}/users/me/avatar`,
+            {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+                body: formData,
+            },
+        );
+
+        if (!response.ok) {
+            throw new Error(
+                await getErrorMessage(
+                    response,
+                    "Could not upload avatar",
+                ),
+            );
+        }
+
+        return response.json();
+    }
+
+
+    export async function removeAvatar(
+        token: string,
+    ): Promise<User> {
+        const response = await fetch(
+            `${API_BASE_URL}/users/me/avatar`,
+            {
+                method: "DELETE",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            },
+        );
+
+        if (!response.ok) {
+            throw new Error(
+                await getErrorMessage(
+                    response,
+                    "Could not remove avatar",
+                ),
+            );
+        }
+
+        return response.json();
+    }
+
+
+    export function getMediaUrl(
+        path: string | null,
+    ): string | null {
+        if (!path) {
+            return null;
+        }
+
+        if (
+            path.startsWith("http://") ||
+            path.startsWith("https://")
+        ) {
+            return path;
+        }
+
+        if (isDevelopmentServer) {
+            return (
+                `http://${window.location.hostname}:8000` +
+                path
+            );
+        }
+
+        return `/api${path}`;
+    }
 
 export async function searchUsers(token: string, username: string): Promise<User[]> {
     const query = new URLSearchParams({

@@ -1,23 +1,24 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type {
-    ChangeEvent,
-    FormEvent,
-} from "react";
+import type { ChangeEvent, FormEvent } from "react";
 
 import {
     createPrivateChat,
     createWebSocket,
     getChats,
     getCurrentUser,
+    getMediaUrl,
     getMessages,
     loginUser,
+    markChatRead,
     registerUser,
+    removeAvatar,
     searchUsers,
     sendMessage,
+    updateProfile,
+    uploadAvatar,
     type Chat,
     type Message,
     type User,
-    markChatRead,
 } from "./api";
 
 import "./App.css";
@@ -25,6 +26,7 @@ import "./App.css";
 
 type AuthMode = "login" | "register";
 type WebSocketStatus = "connecting" | "connected" | "disconnected";
+
 
 function sortChats(chats: Chat[]): Chat[] {
     return [...chats].sort((firstChat, secondChat) => {
@@ -42,6 +44,33 @@ function sortChats(chats: Chat[]): Chat[] {
         );
     });
 }
+
+
+function getUserDisplayName(user: User): string {
+    return user.display_name?.trim() || user.username;
+}
+
+
+function UserAvatar({
+    user,
+    className,
+}: {
+    user: User;
+    className: string;
+}) {
+    const avatarUrl = getMediaUrl(user.avatar_url);
+
+    return (
+        <div className={className}>
+            {avatarUrl ? (
+                <img src={avatarUrl} alt="" />
+            ) : (
+                user.username.charAt(0).toUpperCase()
+            )}
+        </div>
+    );
+}
+
 
 function App() {
     const [token, setToken] = useState<string | null>(
@@ -72,25 +101,31 @@ function App() {
     const [wsStatus, setWsStatus] = useState<WebSocketStatus>("disconnected");
 
     const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(
-    () => new Set(),
-        );
+        () => new Set(),
+    );
 
     const [typingUserIds, setTypingUserIds] = useState<Set<string>>(
         () => new Set(),
     );
 
+    const [profileOpen, setProfileOpen] = useState(false);
+    const [profileUsername, setProfileUsername] = useState("");
+    const [profileDisplayName, setProfileDisplayName] = useState("");
+    const [profileBio, setProfileBio] = useState("");
+    const [profileSaving, setProfileSaving] = useState(false);
+    const [avatarUploading, setAvatarUploading] = useState(false);
+    const [profileMessage, setProfileMessage] = useState("");
+
     const activeChatIdRef = useRef<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
-
     const websocketRef = useRef<WebSocket | null>(null);
 
     const typingTimeoutRef = useRef<
         ReturnType<typeof setTimeout> | null
     >(null);
 
-    const typingChatIdRef = useRef<string | null>(
-        null
-    );
+    const typingChatIdRef = useRef<string | null>(null);
+
 
     function sendWebSocketEvent(
         data: Record<string, unknown>,
@@ -104,18 +139,13 @@ function App() {
             return;
         }
 
-        websocket.send(
-            JSON.stringify(data),
-        );
+        websocket.send(JSON.stringify(data));
     }
 
 
     function stopTyping() {
         if (typingTimeoutRef.current) {
-            clearTimeout(
-                typingTimeoutRef.current,
-            );
-
+            clearTimeout(typingTimeoutRef.current);
             typingTimeoutRef.current = null;
         }
 
@@ -146,13 +176,10 @@ function App() {
             return;
         }
 
-        if (
-            typingChatIdRef.current !== activeChat.id
-        ) {
+        if (typingChatIdRef.current !== activeChat.id) {
             stopTyping();
 
-            typingChatIdRef.current =
-                activeChat.id;
+            typingChatIdRef.current = activeChat.id;
 
             sendWebSocketEvent({
                 type: "typing.start",
@@ -161,19 +188,15 @@ function App() {
         }
 
         if (typingTimeoutRef.current) {
-            clearTimeout(
-                typingTimeoutRef.current,
-            );
+            clearTimeout(typingTimeoutRef.current);
         }
 
-        typingTimeoutRef.current = setTimeout(
-            () => {
-                stopTyping();
-            },
-            1800,
-        );
+        typingTimeoutRef.current = setTimeout(() => {
+            stopTyping();
+        }, 1800);
     }
-    
+
+
     useEffect(() => {
         activeChatIdRef.current = activeChat?.id ?? null;
     }, [activeChat]);
@@ -200,10 +223,13 @@ function App() {
                 ]);
 
                 setUser(currentUser);
-                setChats(userChats);
+                setChats(sortChats(userChats));
 
                 if (userChats.length > 0) {
-                    await openChat(userChats[0], token!);
+                    await openChat(
+                        sortChats(userChats)[0],
+                        token!,
+                    );
                 }
             } catch {
                 logout();
@@ -221,11 +247,11 @@ function App() {
             return;
         }
 
-    const websocket = createWebSocket();
+        const currentUserId = user.id;
+        const websocket = createWebSocket();
 
-    websocketRef.current = websocket;
-
-    setWsStatus("connecting");
+        websocketRef.current = websocket;
+        setWsStatus("connecting");
 
         websocket.addEventListener("open", () => {
             websocket.send(
@@ -246,48 +272,35 @@ function App() {
 
             if (data.type === "presence.snapshot") {
                 setOnlineUserIds(
-                    new Set(
-                        data.online_user_ids as string[],
-                    ),
+                    new Set(data.online_user_ids as string[]),
                 );
-
                 return;
             }
-
 
             if (data.type === "presence.online") {
                 setOnlineUserIds((current) => {
                     const updated = new Set(current);
-
                     updated.add(data.user_id);
-
                     return updated;
                 });
-
                 return;
             }
-
 
             if (data.type === "presence.offline") {
                 setOnlineUserIds((current) => {
                     const updated = new Set(current);
-
                     updated.delete(data.user_id);
-
                     return updated;
                 });
 
                 setTypingUserIds((current) => {
                     const updated = new Set(current);
-
                     updated.delete(data.user_id);
-
                     return updated;
                 });
 
                 return;
             }
-
 
             if (data.type === "presence.state") {
                 setOnlineUserIds((current) => {
@@ -305,17 +318,11 @@ function App() {
                 return;
             }
 
-
             if (data.type === "typing.start") {
-                if (
-                    data.chat_id ===
-                    activeChatIdRef.current
-                ) {
+                if (data.chat_id === activeChatIdRef.current) {
                     setTypingUserIds((current) => {
                         const updated = new Set(current);
-
                         updated.add(data.user_id);
-
                         return updated;
                     });
                 }
@@ -323,13 +330,10 @@ function App() {
                 return;
             }
 
-
             if (data.type === "typing.stop") {
                 setTypingUserIds((current) => {
                     const updated = new Set(current);
-
                     updated.delete(data.user_id);
-
                     return updated;
                 });
 
@@ -341,9 +345,9 @@ function App() {
                     currentChats.map((chat) =>
                         chat.id === data.chat_id
                             ? {
-                                ...chat,
-                                peer_last_read_at: data.read_at,
-                            }
+                                  ...chat,
+                                  peer_last_read_at: data.read_at,
+                              }
                             : chat,
                     ),
                 );
@@ -365,20 +369,57 @@ function App() {
                 return;
             }
 
+            if (data.type === "profile.updated") {
+                const updatedUser = data.user as User;
+
+                setChats((currentChats) =>
+                    currentChats.map((chat) =>
+                        chat.peer.id === updatedUser.id
+                            ? {
+                                  ...chat,
+                                  peer: updatedUser,
+                              }
+                            : chat,
+                    ),
+                );
+
+                setActiveChat((currentChat) => {
+                    if (
+                        !currentChat ||
+                        currentChat.peer.id !== updatedUser.id
+                    ) {
+                        return currentChat;
+                    }
+
+                    return {
+                        ...currentChat,
+                        peer: updatedUser,
+                    };
+                });
+
+                setSearchResults((currentUsers) =>
+                    currentUsers.map((searchUser) =>
+                        searchUser.id === updatedUser.id
+                            ? updatedUser
+                            : searchUser,
+                    ),
+                );
+
+                return;
+            }
+
             if (data.type === "message.new") {
                 const incomingMessage = data.message as Message;
-                
+
                 setTypingUserIds((current) => {
                     const updated = new Set(current);
-
-                    updated.delete(
-                        incomingMessage.sender_id,
-                    );
-
+                    updated.delete(incomingMessage.sender_id);
                     return updated;
                 });
+
                 const isActiveChat =
-                    incomingMessage.chat_id === activeChatIdRef.current;
+                    incomingMessage.chat_id ===
+                    activeChatIdRef.current;
 
                 setChats((currentChats) => {
                     const updatedChats = currentChats.map((chat) => {
@@ -387,7 +428,7 @@ function App() {
                         }
 
                         const shouldIncreaseUnread =
-                            incomingMessage.sender_id !== user.id &&
+                            incomingMessage.sender_id !== currentUserId &&
                             !isActiveChat;
 
                         return {
@@ -427,7 +468,7 @@ function App() {
                     ];
                 });
 
-                if (incomingMessage.sender_id !== user.id) {
+                if (incomingMessage.sender_id !== currentUserId) {
                     void markChatRead(
                         token,
                         incomingMessage.chat_id,
@@ -446,19 +487,18 @@ function App() {
 
         return () => {
             stopTyping();
-
             websocket.close();
 
-            if (
-                websocketRef.current === websocket
-            ) {
+            if (websocketRef.current === websocket) {
                 websocketRef.current = null;
             }
         };
-    }, [token, user]);
+    }, [token, user?.id]);
 
 
-    async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    async function handleAuthSubmit(
+        event: FormEvent<HTMLFormElement>,
+    ) {
         event.preventDefault();
 
         setError("");
@@ -466,10 +506,7 @@ function App() {
 
         try {
             if (mode === "register") {
-                await registerUser(
-                    username,
-                    password,
-                );
+                await registerUser(username, password);
             }
 
             const loginResponse = await loginUser(
@@ -482,10 +519,7 @@ function App() {
                 loginResponse.access_token,
             );
 
-            setToken(
-                loginResponse.access_token,
-            );
-
+            setToken(loginResponse.access_token);
             setPassword("");
         } catch (caughtError) {
             if (caughtError instanceof Error) {
@@ -499,16 +533,17 @@ function App() {
     }
 
 
-    async function openChat(chat: Chat, currentToken = token) {
+    async function openChat(
+        chat: Chat,
+        currentToken = token,
+    ) {
         if (!currentToken) {
             return;
         }
 
+        stopTyping();
         setActiveChat(chat);
-
-        setTypingUserIds(
-            new Set(),
-        );
+        setTypingUserIds(new Set());
 
         sendWebSocketEvent({
             type: "presence.get",
@@ -525,7 +560,7 @@ function App() {
             );
 
             setMessages(chatMessages);
-            
+
             await markChatRead(
                 currentToken,
                 chat.id,
@@ -551,7 +586,9 @@ function App() {
     }
 
 
-    async function handleSearch(event: FormEvent<HTMLFormElement>) {
+    async function handleSearch(
+        event: FormEvent<HTMLFormElement>,
+    ) {
         event.preventDefault();
 
         if (!token || !searchQuery.trim()) {
@@ -593,26 +630,28 @@ function App() {
 
             setChats((currentChats) => {
                 const alreadyExists = currentChats.some(
-                    (existingChat) => existingChat.id === chat.id,
+                    (existingChat) =>
+                        existingChat.id === chat.id,
                 );
 
                 if (alreadyExists) {
-                    return currentChats;
+                    return currentChats.map((existingChat) =>
+                        existingChat.id === chat.id
+                            ? chat
+                            : existingChat,
+                    );
                 }
 
-                return [
+                return sortChats([
                     chat,
                     ...currentChats,
-                ];
+                ]);
             });
 
             setSearchQuery("");
             setSearchResults([]);
 
-            await openChat(
-                chat,
-                token,
-            );
+            await openChat(chat, token);
         } catch (caughtError) {
             if (caughtError instanceof Error) {
                 setError(caughtError.message);
@@ -621,7 +660,9 @@ function App() {
     }
 
 
-    async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
+    async function handleSendMessage(
+        event: FormEvent<HTMLFormElement>,
+    ) {
         event.preventDefault();
 
         if (!token || !activeChat) {
@@ -635,7 +676,6 @@ function App() {
         }
 
         stopTyping();
-
         setSending(true);
         setError("");
 
@@ -672,10 +712,133 @@ function App() {
     }
 
 
+    function openProfileSettings() {
+        if (!user) {
+            return;
+        }
+
+        setProfileUsername(user.username);
+        setProfileDisplayName(user.display_name ?? "");
+        setProfileBio(user.bio ?? "");
+        setProfileMessage("");
+        setError("");
+        setProfileOpen(true);
+    }
+
+
+    async function handleProfileSave(
+        event: FormEvent<HTMLFormElement>,
+    ) {
+        event.preventDefault();
+
+        if (!token) {
+            return;
+        }
+
+        setProfileSaving(true);
+        setProfileMessage("");
+        setError("");
+
+        try {
+            const updatedUser = await updateProfile(
+                token,
+                {
+                    username: profileUsername.trim(),
+                    display_name:
+                        profileDisplayName.trim() || null,
+                    bio: profileBio.trim() || null,
+                },
+            );
+
+            setUser(updatedUser);
+            setProfileUsername(updatedUser.username);
+            setProfileDisplayName(
+                updatedUser.display_name ?? "",
+            );
+            setProfileBio(updatedUser.bio ?? "");
+            setProfileMessage("Profile saved");
+        } catch (caughtError) {
+            if (caughtError instanceof Error) {
+                setError(caughtError.message);
+            } else {
+                setError("Could not update profile");
+            }
+        } finally {
+            setProfileSaving(false);
+        }
+    }
+
+
+    async function handleAvatarChange(
+        event: ChangeEvent<HTMLInputElement>,
+    ) {
+        const file = event.target.files?.[0];
+
+        if (!token || !file) {
+            return;
+        }
+
+        setAvatarUploading(true);
+        setProfileMessage("");
+        setError("");
+
+        try {
+            const updatedUser = await uploadAvatar(
+                token,
+                file,
+            );
+
+            setUser(updatedUser);
+            setProfileMessage("Avatar updated");
+        } catch (caughtError) {
+            if (caughtError instanceof Error) {
+                setError(caughtError.message);
+            } else {
+                setError("Could not upload avatar");
+            }
+        } finally {
+            setAvatarUploading(false);
+            event.target.value = "";
+        }
+    }
+
+
+    async function handleRemoveAvatar() {
+        if (!token) {
+            return;
+        }
+
+        setAvatarUploading(true);
+        setProfileMessage("");
+        setError("");
+
+        try {
+            const updatedUser = await removeAvatar(token);
+
+            setUser(updatedUser);
+            setProfileMessage("Avatar removed");
+        } catch (caughtError) {
+            if (caughtError instanceof Error) {
+                setError(caughtError.message);
+            } else {
+                setError("Could not remove avatar");
+            }
+        } finally {
+            setAvatarUploading(false);
+        }
+    }
+
+
+    function closeProfileSettings() {
+        setProfileOpen(false);
+        setProfileMessage("");
+        setError("");
+    }
+
+
     function logout() {
-        localStorage.removeItem(
-            "access_token",
-        );
+        stopTyping();
+        localStorage.removeItem("access_token");
 
         setToken(null);
         setUser(null);
@@ -684,12 +847,20 @@ function App() {
         setMessages([]);
         setSearchResults([]);
         setSearchQuery("");
+        setProfileOpen(false);
         setWsStatus("disconnected");
+        setOnlineUserIds(new Set());
+        setTypingUserIds(new Set());
     }
-      function closeChat() {
-          setActiveChat(null);
-          setMessages([]);
-      }
+
+
+    function closeChat() {
+        stopTyping();
+        setActiveChat(null);
+        setMessages([]);
+        setTypingUserIds(new Set());
+    }
+
 
     function formatTime(date: string) {
         return new Date(date).toLocaleTimeString([], {
@@ -698,7 +869,11 @@ function App() {
         });
     }
 
-    function isSameDay(firstDate: string | Date, secondDate: string | Date) {
+
+    function isSameDay(
+        firstDate: string | Date,
+        secondDate: string | Date,
+    ) {
         const first = new Date(firstDate);
         const second = new Date(secondDate);
 
@@ -713,8 +888,8 @@ function App() {
     function formatMessageDate(date: string) {
         const messageDate = new Date(date);
         const today = new Date();
-
         const yesterday = new Date(today);
+
         yesterday.setDate(today.getDate() - 1);
 
         if (isSameDay(messageDate, today)) {
@@ -732,6 +907,7 @@ function App() {
         });
     }
 
+
     if (!token) {
         return (
             <main className="auth-page">
@@ -747,11 +923,15 @@ function App() {
                     </p>
 
                     <form onSubmit={handleAuthSubmit}>
-                        <label htmlFor="username">Username</label>
+                        <label htmlFor="username">
+                            Username
+                        </label>
 
                         <input id="username" type="text" value={username} onChange={(event) => setUsername(event.target.value)} minLength={3} maxLength={32} autoComplete="username" required />
 
-                        <label htmlFor="password">Password</label>
+                        <label htmlFor="password">
+                            Password
+                        </label>
 
                         <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} required />
 
@@ -772,7 +952,11 @@ function App() {
 
                     <button className="mode-button" type="button" onClick={() => {
                         setError("");
-                        setMode(mode === "login" ? "register" : "login");
+                        setMode(
+                            mode === "login"
+                                ? "register"
+                                : "login",
+                        );
                     }}>
                         {mode === "login"
                             ? "Create an account"
@@ -798,22 +982,33 @@ function App() {
             <aside className="sidebar">
                 <header className="sidebar-header">
                     <div className="current-user">
-                        <div className="small-avatar">
-                            {user.username.charAt(0).toUpperCase()}
-                        </div>
+                        <UserAvatar
+                            user={user}
+                            className="small-avatar"
+                        />
 
                         <div>
-                            <strong>{user.username}</strong>
+                            <strong>
+                                {getUserDisplayName(user)}
+                            </strong>
 
                             <div className={`connection-status ${wsStatus}`}>
-                                {wsStatus === "connected" ? "Online" : wsStatus}
+                                {wsStatus === "connected"
+                                    ? "Online"
+                                    : wsStatus}
                             </div>
                         </div>
                     </div>
 
-                    <button className="logout-button" type="button" onClick={logout}>
-                        Log out
-                    </button>
+                    <div className="sidebar-actions">
+                        <button className="settings-button" type="button" onClick={openProfileSettings} aria-label="Profile settings">
+                            ⚙
+                        </button>
+
+                        <button className="logout-button" type="button" onClick={logout}>
+                            Log out
+                        </button>
+                    </div>
                 </header>
 
                 <div className="search-area">
@@ -835,11 +1030,22 @@ function App() {
                         <div className="search-results">
                             {searchResults.map((searchUser) => (
                                 <button className="search-result" type="button" key={searchUser.id} onClick={() => void handleUserSelect(searchUser)}>
-                                    <div className="chat-avatar">
-                                        {searchUser.username.charAt(0).toUpperCase()}
-                                    </div>
+                                    <UserAvatar
+                                        user={searchUser}
+                                        className="chat-avatar"
+                                    />
 
-                                    <span>{searchUser.username}</span>
+                                    <div className="search-result-user">
+                                        <strong>
+                                            {getUserDisplayName(
+                                                searchUser,
+                                            )}
+                                        </strong>
+
+                                        <span>
+                                            @{searchUser.username}
+                                        </span>
+                                    </div>
                                 </button>
                             ))}
                         </div>
@@ -854,45 +1060,48 @@ function App() {
                     ) : (
                         chats.map((chat) => (
                             <button className={`chat-item ${activeChat?.id === chat.id ? "active" : ""}`} type="button" key={chat.id} onClick={() => void openChat(chat)}>
-                                <div className="chat-avatar">
-                                    {chat.peer.username.charAt(0).toUpperCase()}
-                                </div>
+                                <UserAvatar
+                                    user={chat.peer}
+                                    className="chat-avatar"
+                                />
 
                                 <div className="chat-info">
-                                  <div className="chat-title-row">
-                                      <strong>
-                                          {chat.peer.username}
-                                      </strong>
+                                    <div className="chat-title-row">
+                                        <strong>
+                                            {getUserDisplayName(
+                                                chat.peer,
+                                            )}
+                                        </strong>
 
-                                      {chat.last_message && (
-                                          <span className="chat-time">
-                                              {formatTime(
-                                                  chat.last_message.created_at,
-                                              )}
-                                          </span>
-                                      )}
-                                  </div>
+                                        {chat.last_message && (
+                                            <span className="chat-time">
+                                                {formatTime(
+                                                    chat.last_message.created_at,
+                                                )}
+                                            </span>
+                                        )}
+                                    </div>
 
-                                  <div className="chat-preview-row">
-                                      <span className="chat-preview">
-                                          {chat.last_message
-                                              ? `${
-                                                    chat.last_message.sender_id === user.id
-                                                        ? "You: "
-                                                        : ""
-                                                }${chat.last_message.content}`
-                                              : "No messages yet"}
-                                      </span>
+                                    <div className="chat-preview-row">
+                                        <span className="chat-preview">
+                                            {chat.last_message
+                                                ? `${
+                                                      chat.last_message.sender_id === user.id
+                                                          ? "You: "
+                                                          : ""
+                                                  }${chat.last_message.content}`
+                                                : "No messages yet"}
+                                        </span>
 
-                                      {chat.unread_count > 0 && (
-                                          <span className="unread-badge">
-                                              {chat.unread_count > 99
-                                                  ? "99+"
-                                                  : chat.unread_count}
-                                          </span>
-                                      )}
-                                  </div>
-                              </div>
+                                        {chat.unread_count > 0 && (
+                                            <span className="unread-badge">
+                                                {chat.unread_count > 99
+                                                    ? "99+"
+                                                    : chat.unread_count}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
                             </button>
                         ))
                     )}
@@ -903,16 +1112,20 @@ function App() {
                 {activeChat ? (
                     <>
                         <header className="chat-header">
-                          <button className="mobile-back-button" type="button" onClick={closeChat} aria-label="Back to chats">
-                              ←
-                          </button>
-                            <div className="chat-avatar">
-                                {activeChat.peer.username.charAt(0).toUpperCase()}
-                            </div>
+                            <button className="mobile-back-button" type="button" onClick={closeChat} aria-label="Back to chats">
+                                ←
+                            </button>
+
+                            <UserAvatar
+                                user={activeChat.peer}
+                                className="chat-avatar"
+                            />
 
                             <div>
                                 <strong>
-                                    {activeChat.peer.username}
+                                    {getUserDisplayName(
+                                        activeChat.peer,
+                                    )}
                                 </strong>
 
                                 <span
@@ -922,10 +1135,10 @@ function App() {
                                         )
                                             ? "peer-status typing"
                                             : onlineUserIds.has(
-                                                activeChat.peer.id,
-                                            )
-                                            ? "peer-status online"
-                                            : "peer-status"
+                                                  activeChat.peer.id,
+                                              )
+                                              ? "peer-status online"
+                                              : "peer-status"
                                     }
                                 >
                                     {typingUserIds.has(
@@ -933,10 +1146,10 @@ function App() {
                                     )
                                         ? "typing..."
                                         : onlineUserIds.has(
-                                            activeChat.peer.id,
-                                        )
-                                        ? "Online"
-                                        : "Offline"}
+                                              activeChat.peer.id,
+                                          )
+                                          ? "Online"
+                                          : "Offline"}
                                 </span>
                             </div>
                         </header>
@@ -958,7 +1171,9 @@ function App() {
                                     const isRead =
                                         isOwnMessage &&
                                         activeChat.peer_last_read_at !== null &&
-                                        new Date(message.created_at).getTime() <=
+                                        new Date(
+                                            message.created_at,
+                                        ).getTime() <=
                                             new Date(
                                                 activeChat.peer_last_read_at,
                                             ).getTime();
@@ -987,11 +1202,7 @@ function App() {
                                                 </div>
                                             )}
 
-                                            <div
-                                                className={`message-row ${
-                                                    isOwnMessage ? "own" : ""
-                                                }`}
-                                            >
+                                            <div className={`message-row ${isOwnMessage ? "own" : ""}`}>
                                                 <div className="message-bubble">
                                                     <div className="message-content">
                                                         {message.content}
@@ -1005,17 +1216,10 @@ function App() {
                                                         </span>
 
                                                         {isOwnMessage && (
-                                                            <span
-                                                                className={`message-receipt ${
-                                                                    isRead ? "read" : ""
-                                                                }`}
-                                                                title={
-                                                                    isRead
-                                                                        ? "Read"
-                                                                        : "Sent"
-                                                                }
-                                                            >
-                                                                {isRead ? "✓✓" : "✓"}
+                                                            <span className={`message-receipt ${isRead ? "read" : ""}`} title={isRead ? "Read" : "Sent"}>
+                                                                {isRead
+                                                                    ? "✓✓"
+                                                                    : "✓"}
                                                             </span>
                                                         )}
                                                     </div>
@@ -1030,14 +1234,8 @@ function App() {
                         </div>
 
                         <form className="message-form" onSubmit={handleSendMessage}>
-                            <input
-                                type="text"
-                                placeholder="Write a message..."
-                                value={messageInput}
-                                onChange={handleMessageInputChange}
-                                maxLength={4000}
-                                autoComplete="off"
-                            />
+                            <input type="text" placeholder="Write a message..." value={messageInput} onChange={handleMessageInputChange} maxLength={4000} autoComplete="off" />
+
                             <button type="submit" disabled={sending || !messageInput.trim()}>
                                 ➤
                             </button>
@@ -1046,7 +1244,6 @@ function App() {
                 ) : (
                     <div className="no-chat-selected">
                         <div className="logo">M</div>
-
                         <h2>Select a chat</h2>
 
                         <p>
@@ -1055,7 +1252,7 @@ function App() {
                     </div>
                 )}
 
-                {error && (
+                {error && !profileOpen && (
                     <div className="global-error">
                         {error}
 
@@ -1065,6 +1262,89 @@ function App() {
                     </div>
                 )}
             </section>
+
+            {profileOpen && (
+                <div className="profile-overlay">
+                    <section className="profile-settings">
+                        <header className="profile-settings-header">
+                            <h2>Profile</h2>
+
+                            <button type="button" onClick={closeProfileSettings} aria-label="Close">
+                                ×
+                            </button>
+                        </header>
+
+                        <div className="profile-avatar-section">
+                            <UserAvatar
+                                user={user}
+                                className="profile-avatar"
+                            />
+
+                            <div className="profile-avatar-actions">
+                                <label className="avatar-upload-button">
+                                    {avatarUploading
+                                        ? "Uploading..."
+                                        : "Change photo"}
+
+                                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarChange} disabled={avatarUploading} />
+                                </label>
+
+                                {user.avatar_url && (
+                                    <button className="remove-avatar-button" type="button" onClick={() => void handleRemoveAvatar()} disabled={avatarUploading}>
+                                        Remove photo
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <form className="profile-form" onSubmit={handleProfileSave}>
+                            <label htmlFor="profile-display-name">
+                                Display name
+                            </label>
+
+                            <input id="profile-display-name" type="text" value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} maxLength={64} placeholder="Your name" autoComplete="name" />
+
+                            <label htmlFor="profile-username">
+                                Username
+                            </label>
+
+                            <div className="username-input">
+                                <span>@</span>
+
+                                <input id="profile-username" type="text" value={profileUsername} onChange={(event) => setProfileUsername(event.target.value)} minLength={3} maxLength={32} autoComplete="username" required />
+                            </div>
+
+                            <label htmlFor="profile-bio">
+                                Bio
+                            </label>
+
+                            <textarea id="profile-bio" value={profileBio} onChange={(event) => setProfileBio(event.target.value)} maxLength={160} placeholder="Tell something about yourself" rows={4} />
+
+                            <div className="bio-counter">
+                                {profileBio.length}/160
+                            </div>
+
+                            {error && (
+                                <div className="error-message">
+                                    {error}
+                                </div>
+                            )}
+
+                            {profileMessage && (
+                                <div className="profile-success">
+                                    {profileMessage}
+                                </div>
+                            )}
+
+                            <button className="primary-button" type="submit" disabled={profileSaving || !profileUsername.trim()}>
+                                {profileSaving
+                                    ? "Saving..."
+                                    : "Save changes"}
+                            </button>
+                        </form>
+                    </section>
+                </div>
+            )}
         </main>
     );
 }

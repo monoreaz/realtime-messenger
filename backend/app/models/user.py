@@ -23,6 +23,21 @@ class User(Base):
         nullable=False,
     )
 
+    display_name: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    bio: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+    )
+
+    avatar_url: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     password_hash: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

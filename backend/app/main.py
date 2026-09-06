@@ -13,6 +13,10 @@ from app.api.messages import router as messages_router
 from app.api.ws import router as ws_router
 
 from fastapi.middleware.cors import CORSMiddleware
+
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
@@ -23,6 +27,21 @@ app = FastAPI(
     title="Messenger API",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+UPLOAD_DIR = Path("/app/uploads")
+
+UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+app.mount(
+    "/uploads",
+    StaticFiles(
+        directory=UPLOAD_DIR,
+    ),
+    name="uploads",
 )
 
 app.add_middleware(
@@ -37,6 +56,8 @@ app.add_middleware(
     allow_methods=[
         "GET",
         "POST",
+        "PATCH",
+        "DELETE",
         "OPTIONS",
     ],
     allow_headers=[

@@ -34,6 +34,7 @@ services:
 
     volumes:
       - ./backend:/app
+      - avatar_data:/app/uploads
 
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
@@ -76,3 +77,4 @@ services:
 volumes:
   postgres_data:
   frontend_node_modules:
+  avatar_data:
