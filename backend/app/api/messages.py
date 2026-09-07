@@ -17,7 +17,11 @@ from app.models.chat import ChatMember
 from app.models.message import Message
 from app.models.user import User
 from app.realtime.manager import manager
-from app.schemas.message import MessageCreate, MessageResponse
+from app.schemas.message import (
+    MessageCreate,
+    MessageResponse,
+    ReplyMessageResponse,
+)
 
 
 router = APIRouter(
@@ -47,6 +51,68 @@ async def check_chat_membership(
         )
 
 
+def build_message_response(
+    message: Message,
+    replied_message: Message | None = None,
+) -> MessageResponse:
+    reply_response = None
+
+    if replied_message is not None:
+        reply_response = ReplyMessageResponse(
+            id=replied_message.id,
+            sender_id=replied_message.sender_id,
+            content=replied_message.content,
+        )
+
+    return MessageResponse(
+        id=message.id,
+        chat_id=message.chat_id,
+        sender_id=message.sender_id,
+        content=message.content,
+        created_at=message.created_at,
+        reply_to_message_id=message.reply_to_message_id,
+        reply_to_message=reply_response,
+    )
+
+
+async def build_message_responses(
+    db: AsyncSession,
+    messages: list[Message],
+) -> list[MessageResponse]:
+    reply_ids = {
+        message.reply_to_message_id
+        for message in messages
+        if message.reply_to_message_id is not None
+    }
+
+    replied_messages: dict[
+        uuid.UUID,
+        Message,
+    ] = {}
+
+    if reply_ids:
+        result = await db.execute(
+            select(Message).where(
+                Message.id.in_(reply_ids)
+            )
+        )
+
+        replied_messages = {
+            message.id: message
+            for message in result.scalars().all()
+        }
+
+    return [
+        build_message_response(
+            message,
+            replied_messages.get(
+                message.reply_to_message_id
+            ),
+        )
+        for message in messages
+    ]
+
+
 @router.post(
     "/{chat_id}/messages",
     response_model=MessageResponse,
@@ -67,10 +133,39 @@ async def send_message(
         current_user.id,
     )
 
+    replied_message = None
+
+    if message_data.reply_to_message_id:
+        result = await db.execute(
+            select(Message).where(
+                Message.id
+                == message_data.reply_to_message_id,
+                Message.chat_id == chat_id,
+            )
+        )
+
+        replied_message = (
+            result.scalar_one_or_none()
+        )
+
+        if replied_message is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Reply message not found "
+                    "in this chat"
+                ),
+            )
+
     message = Message(
         chat_id=chat_id,
         sender_id=current_user.id,
         content=message_data.content,
+        reply_to_message_id=(
+            replied_message.id
+            if replied_message
+            else None
+        ),
     )
 
     db.add(message)
@@ -88,8 +183,9 @@ async def send_message(
         result.scalars().all()
     )
 
-    message_response = MessageResponse.model_validate(
-        message
+    message_response = build_message_response(
+        message,
+        replied_message,
     )
 
     await manager.send_to_users(
@@ -147,4 +243,7 @@ async def get_messages(
 
     messages.reverse()
 
-    return messages
+    return await build_message_responses(
+        db,
+        messages,
+    )

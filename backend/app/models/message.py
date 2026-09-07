@@ -1,7 +1,13 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Text, Uuid, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Text,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -33,6 +39,18 @@ class Message(Base):
             ondelete="CASCADE",
         ),
         nullable=False,
+        index=True,
+    )
+
+    reply_to_message_id: Mapped[
+        uuid.UUID | None
+    ] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "messages.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
         index=True,
     )
 

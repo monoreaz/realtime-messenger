@@ -91,6 +91,10 @@ function App() {
 
     const [messageInput, setMessageInput] = useState("");
 
+    const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+
+    const messageInputRef = useRef<HTMLInputElement | null>(null);
+
     const [authLoading, setAuthLoading] = useState(false);
     const [appLoading, setAppLoading] = useState(Boolean(token));
     const [messagesLoading, setMessagesLoading] = useState(false);
@@ -120,9 +124,7 @@ function App() {
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const websocketRef = useRef<WebSocket | null>(null);
 
-    const typingTimeoutRef = useRef<
-        ReturnType<typeof setTimeout> | null
-    >(null);
+    const typingTimeoutRef = useRef< ReturnType<typeof setTimeout> | null >(null);
 
     const typingChatIdRef = useRef<string | null>(null);
 
@@ -542,6 +544,7 @@ function App() {
         }
 
         stopTyping();
+        setReplyingTo(null);
         setActiveChat(chat);
         setTypingUserIds(new Set());
 
@@ -659,6 +662,16 @@ function App() {
         }
     }
 
+    function startReply(
+        message: Message,
+    ) {
+        setReplyingTo(message);
+
+        requestAnimationFrame(() => {
+            messageInputRef.current?.focus();
+        });
+    }
+
 
     async function handleSendMessage(
         event: FormEvent<HTMLFormElement>,
@@ -684,6 +697,7 @@ function App() {
                 token,
                 activeChat.id,
                 content,
+                replyingTo?.id ?? null,
             );
 
             setMessages((currentMessages) => {
@@ -702,6 +716,7 @@ function App() {
             });
 
             setMessageInput("");
+            setReplyingTo(null);
         } catch (caughtError) {
             if (caughtError instanceof Error) {
                 setError(caughtError.message);
@@ -838,6 +853,7 @@ function App() {
 
     function logout() {
         stopTyping();
+        setReplyingTo(null);
         localStorage.removeItem("access_token");
 
         setToken(null);
@@ -856,6 +872,7 @@ function App() {
 
     function closeChat() {
         stopTyping();
+        setReplyingTo(null);
         setActiveChat(null);
         setMessages([]);
         setTypingUserIds(new Set());
@@ -1203,7 +1220,37 @@ function App() {
                                             )}
 
                                             <div className={`message-row ${isOwnMessage ? "own" : ""}`}>
+                                                <button
+                                                    className="reply-message-button"
+                                                    type="button"
+                                                    onClick={() =>
+                                                        startReply(message)
+                                                    }
+                                                    title="Reply"
+                                                    aria-label="Reply to message"
+                                                >
+                                                    ↩
+                                                </button>
                                                 <div className="message-bubble">
+                                                    {message.reply_to_message && (
+                                                        <div className="message-reply">
+                                                            <strong>
+                                                                {message.reply_to_message.sender_id ===
+                                                                user.id
+                                                                    ? "You"
+                                                                    : getUserDisplayName(
+                                                                        activeChat.peer,
+                                                                    )}
+                                                            </strong>
+
+                                                            <span>
+                                                                {
+                                                                    message.reply_to_message
+                                                                        .content
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                     <div className="message-content">
                                                         {message.content}
                                                     </div>
@@ -1233,13 +1280,68 @@ function App() {
                             <div ref={messagesEndRef} />
                         </div>
 
-                        <form className="message-form" onSubmit={handleSendMessage}>
-                            <input type="text" placeholder="Write a message..." value={messageInput} onChange={handleMessageInputChange} maxLength={4000} autoComplete="off" />
+                        <div className="message-composer">
+    {replyingTo && (
+        <div className="replying-preview">
+            <div className="replying-preview-content">
+                <strong>
+                    Replying to{" "}
+                    {replyingTo.sender_id ===
+                    user.id
+                        ? "yourself"
+                        : getUserDisplayName(
+                              activeChat.peer,
+                          )}
+                </strong>
 
-                            <button type="submit" disabled={sending || !messageInput.trim()}>
-                                ➤
-                            </button>
-                        </form>
+                <span>
+                    {replyingTo.content}
+                </span>
+            </div>
+
+            <button
+                type="button"
+                onClick={() =>
+                    setReplyingTo(null)
+                }
+                aria-label="Cancel reply"
+            >
+                ×
+            </button>
+        </div>
+    )}
+
+    <form
+        className="message-form"
+        onSubmit={handleSendMessage}
+    >
+        <input
+            ref={messageInputRef}
+            type="text"
+            placeholder={
+                replyingTo
+                    ? "Write a reply..."
+                    : "Write a message..."
+            }
+            value={messageInput}
+            onChange={
+                handleMessageInputChange
+            }
+            maxLength={4000}
+            autoComplete="off"
+        />
+
+        <button
+            type="submit"
+            disabled={
+                sending ||
+                !messageInput.trim()
+            }
+        >
+            ➤
+        </button>
+    </form>
+</div>
                     </>
                 ) : (
                     <div className="no-chat-selected">

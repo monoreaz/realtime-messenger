@@ -28,6 +28,15 @@ export interface Message {
     sender_id: string;
     content: string;
     created_at: string;
+
+    reply_to_message_id: string | null;
+    reply_to_message: ReplyMessage | null;
+}
+
+export interface ReplyMessage {
+    id: string;
+    sender_id: string;
+    content: string;
 }
 
 const isDevelopmentServer = window.location.port === "5173";
@@ -308,21 +317,34 @@ export async function getMessages(token: string, chatId: string): Promise<Messag
 }
 
 
-export async function sendMessage(token: string, chatId: string, content: string): Promise<Message> {
-    const response = await fetch(`${API_BASE_URL}/chats/${chatId}/messages`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
+export async function sendMessage(
+    token: string,
+    chatId: string,
+    content: string,
+    replyToMessageId: string | null = null,
+): Promise<Message> {
+    const response = await fetch(
+        `${API_BASE_URL}/chats/${chatId}/messages`,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                content,
+                reply_to_message_id:
+                    replyToMessageId,
+            }),
         },
-        body: JSON.stringify({
-            content,
-        }),
-    });
+    );
 
     if (!response.ok) {
         throw new Error(
-            await getErrorMessage(response, "Could not send message"),
+            await getErrorMessage(
+                response,
+                "Could not send message",
+            ),
         );
     }
 
