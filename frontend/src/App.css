@@ -1175,9 +1175,9 @@ button {
     color: #ffffff;
 }
 
-.message-row.own {
+/* .message-row.own {
     flex-direction: row-reverse;
-}
+} */
 
 .message-row.own .reply-message-button {
     margin-right: 0;
