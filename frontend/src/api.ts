@@ -61,25 +61,64 @@ async function getErrorMessage(response: Response, fallback: string): Promise<st
 }
 
 
-export async function registerUser(username: string, password: string): Promise<User> {
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
+export async function registerUser(
+    username: string,
+    email: string,
+    password: string,
+): Promise<User> {
+    const response = await fetch(
+        `${API_BASE_URL}/auth/register`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type":
+                    "application/json",
+            },
+            body: JSON.stringify({
+                username,
+                email,
+                password,
+            }),
         },
-        body: JSON.stringify({
-            username,
-            password,
-        }),
-    });
+    );
 
     if (!response.ok) {
         throw new Error(
-            await getErrorMessage(response, "Registration failed"),
+            await getErrorMessage(
+                response,
+                "Registration failed",
+            ),
         );
     }
 
     return response.json();
+}
+
+export async function verifyEmail(
+    token: string,
+): Promise<void> {
+    const response = await fetch(
+        `${API_BASE_URL}/auth/verify-email`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type":
+                    "application/json",
+            },
+            body: JSON.stringify({
+                token,
+            }),
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Email verification failed",
+            ),
+        );
+    }
 }
 
 

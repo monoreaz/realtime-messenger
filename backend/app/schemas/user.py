@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import (
     BaseModel,
     ConfigDict,
+    EmailStr,
     Field,
     field_validator,
 )
@@ -15,6 +16,8 @@ class UserCreate(BaseModel):
         max_length=32,
         pattern=r"^[A-Za-z0-9_]+$",
     )
+
+    email: EmailStr
 
     password: str = Field(
         min_length=8,

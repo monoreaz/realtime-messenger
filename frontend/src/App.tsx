@@ -16,6 +16,7 @@ import {
     sendMessage,
     updateProfile,
     uploadAvatar,
+    verifyEmail,
     type Chat,
     type Message,
     type User,
@@ -86,6 +87,9 @@ function App() {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
 
+    const [email, setEmail] = useState("");
+    const [authNotice, setAuthNotice] = useState("");
+
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<User[]>([]);
 
@@ -144,7 +148,60 @@ function App() {
         websocket.send(JSON.stringify(data));
     }
 
+useEffect(() => {
+    const params = new URLSearchParams(
+        window.location.search
+    );
 
+    const verificationToken =
+        params.get("verify");
+
+    if (!verificationToken) {
+        return;
+    }
+
+    async function verify() {
+        setError("");
+        setAuthNotice("");
+
+        try {
+            await verifyEmail(
+                verificationToken!
+            );
+
+            setMode("login");
+
+            setAuthNotice(
+                "Email verified. You can now sign in."
+            );
+        } catch (caughtError) {
+            if (
+                caughtError instanceof Error
+            ) {
+                setError(
+                    caughtError.message
+                );
+            }
+        } finally {
+            params.delete("verify");
+
+            const query =
+                params.toString();
+
+            window.history.replaceState(
+                {},
+                "",
+                query
+                    ? `${window.location.pathname}?${query}`
+                    : window.location.pathname,
+            );
+        }
+    }
+
+    void verify();
+}, []);
+
+    
     function stopTyping() {
         if (typingTimeoutRef.current) {
             clearTimeout(typingTimeoutRef.current);
@@ -508,7 +565,20 @@ function App() {
 
         try {
             if (mode === "register") {
-                await registerUser(username, password);
+                await registerUser(
+                    username,
+                    email,
+                    password,
+                );
+
+                setPassword("");
+                setMode("login");
+
+                setAuthNotice(
+                    `Account created. Verify ${email} before signing in.`
+                );
+
+                return;
             }
 
             const loginResponse = await loginUser(
@@ -943,7 +1013,26 @@ function App() {
                         <label htmlFor="username">
                             Username
                         </label>
+                            {mode === "register" && (
+                            <>
+                                <label htmlFor="email">
+                                    Email
+                                </label>
 
+                                <input
+                                    id="email"
+                                    type="email"
+                                    value={email}
+                                    onChange={(event) =>
+                                        setEmail(
+                                            event.target.value
+                                        )
+                                    }
+                                    autoComplete="email"
+                                    required
+                                />
+                            </>
+                        )}
                         <input id="username" type="text" value={username} onChange={(event) => setUsername(event.target.value)} minLength={3} maxLength={32} autoComplete="username" required />
 
                         <label htmlFor="password">
@@ -951,6 +1040,12 @@ function App() {
                         </label>
 
                         <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} required />
+
+                        {authNotice && (
+                            <div className="profile-success">
+                                {authNotice}
+                            </div>
+                        )}
 
                         {error && (
                             <div className="error-message">
