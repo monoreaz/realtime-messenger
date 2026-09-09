@@ -16,15 +16,15 @@ from fastapi import (
     status,
 )
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.security import (
     create_access_token,
     hash_password,
     verify_password,
 )
+from app.models.password_reset import PasswordResetToken
 from app.database import get_db
 from app.models.auth_session import AuthSession
 from app.models.email_verification import EmailVerificationToken
@@ -38,8 +38,16 @@ from app.schemas.user import (
     UserResponse,
 )
 
+from app.schemas.auth import (
+    EmailVerificationRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    Token,
+)
+
 from app.services.email import (
     EmailDeliveryError,
+    send_password_reset_email,
     send_verification_email,
 )
 
@@ -51,6 +59,13 @@ from app.services.email import (
 EMAIL_VERIFICATION_EXPIRE_MINUTES = int(
     os.getenv(
         "EMAIL_VERIFICATION_EXPIRE_MINUTES",
+        "30",
+    )
+)
+
+PASSWORD_RESET_EXPIRE_MINUTES = int(
+    os.getenv(
+        "PASSWORD_RESET_EXPIRE_MINUTES",
         "30",
     )
 )
@@ -378,6 +393,205 @@ async def verify_email(
         status_code=status.HTTP_204_NO_CONTENT
     )
 
+
+@router.post(
+    "/forgot-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def forgot_password(
+    data: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    email = str(data.email).strip().lower()
+
+    result = await db.execute(
+        select(User).where(
+            User.email == email
+        )
+    )
+
+    user = result.scalar_one_or_none()
+
+    # Always return the same response.
+    # This prevents email enumeration.
+    if (
+        user is None
+        or user.email_verified_at is None
+    ):
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT
+        )
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    await db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id
+            == user.id,
+            PasswordResetToken.used_at.is_(
+                None
+            ),
+        )
+        .values(
+            used_at=now
+        )
+    )
+
+    raw_token = secrets.token_urlsafe(
+        32
+    )
+
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token_hash=hash_raw_token(
+            raw_token
+        ),
+        expires_at=(
+            now
+            + timedelta(
+                minutes=(
+                    PASSWORD_RESET_EXPIRE_MINUTES
+                )
+            )
+        ),
+    )
+
+    db.add(reset_token)
+
+    await db.flush()
+
+    reset_url = (
+        f"{PUBLIC_APP_URL}/"
+        f"?reset={raw_token}"
+    )
+
+    try:
+        await send_password_reset_email(
+            email,
+            reset_url,
+        )
+    except EmailDeliveryError:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=(
+                "Could not send password "
+                "reset email. Please try again."
+            ),
+        )
+
+    await db.commit()
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT
+    )
+
+@router.post(
+    "/reset-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def reset_password(
+    data: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    token_hash = hash_raw_token(
+        data.token
+    )
+
+    result = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token_hash
+            == token_hash,
+            PasswordResetToken.used_at.is_(
+                None
+            ),
+        )
+    )
+
+    reset_token = (
+        result.scalar_one_or_none()
+    )
+
+    if reset_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Invalid or already used "
+                "password reset link"
+            ),
+        )
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    if reset_token.expires_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset link expired",
+        )
+
+    user = await db.get(
+        User,
+        reset_token.user_id,
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid password reset link",
+        )
+
+    user.password_hash = hash_password(
+        data.new_password
+    )
+
+    reset_token.used_at = now
+
+    # Log out all existing sessions after
+    # changing the password.
+    await db.execute(
+        update(AuthSession)
+        .where(
+            AuthSession.user_id
+            == user.id,
+            AuthSession.revoked_at.is_(
+                None
+            ),
+        )
+        .values(
+            revoked_at=now
+        )
+    )
+
+    # Invalidate any other reset links.
+    await db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id
+            == user.id,
+            PasswordResetToken.used_at.is_(
+                None
+            ),
+            PasswordResetToken.id
+            != reset_token.id,
+        )
+        .values(
+            used_at=now
+        )
+    )
+
+    await db.commit()
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT
+    )
 
 @router.post(
     "/login",

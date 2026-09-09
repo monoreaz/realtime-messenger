@@ -192,3 +192,62 @@ If you did not create this account, you can ignore this email.
         text_content,
         html_content,
     )
+
+async def send_password_reset_email(
+    to_email: str,
+    reset_url: str,
+) -> None:
+    safe_url = html.escape(
+        reset_url,
+        quote=True,
+    )
+
+    subject = "Reset your Messenger password"
+
+    text_content = f"""A password reset was requested for your Messenger account.
+
+Open this link to choose a new password:
+
+{reset_url}
+
+This link will expire soon.
+
+If you did not request a password reset, you can ignore this email.
+"""
+
+    html_content = f"""
+<!doctype html>
+<html lang="en">
+    <body>
+        <h2>Reset your password</h2>
+
+        <p>
+            A password reset was requested
+            for your Messenger account.
+        </p>
+
+        <p>
+            <a href="{safe_url}">
+                Reset password
+            </a>
+        </p>
+
+        <p>
+            This link will expire soon.
+        </p>
+
+        <p>
+            If you did not request this,
+            you can ignore this email.
+        </p>
+    </body>
+</html>
+"""
+
+    await asyncio.to_thread(
+        _send_email,
+        to_email,
+        subject,
+        text_content,
+        html_content,
+    )
