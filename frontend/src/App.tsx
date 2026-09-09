@@ -8,17 +8,19 @@ import {
     getCurrentUser,
     getMediaUrl,
     getMessages,
+    forgotPassword,
     loginUser,
+    logoutSession,
     markChatRead,
+    refreshSession,
     registerUser,
+    resetPassword,
     removeAvatar,
     searchUsers,
     sendMessage,
     updateProfile,
     uploadAvatar,
     verifyEmail,
-    logoutSession,
-    refreshSession,
     type Chat,
     type Message,
     type User,
@@ -27,7 +29,7 @@ import {
 import "./App.css";
 
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "forgot" | "reset";
 type WebSocketStatus = "connecting" | "connected" | "disconnected";
 
 
@@ -77,7 +79,6 @@ function UserAvatar({
 
 function App() {
     const [token, setToken] = useState<string | null>(null);
-
     const [sessionChecked, setSessionChecked] = useState(false);
 
     const [user, setUser] = useState<User | null>(null);
@@ -85,14 +86,24 @@ function App() {
     const [activeChat, setActiveChat] = useState<Chat | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
 
-    const [mode, setMode] = useState<AuthMode>("login");
+    const [mode, setMode] = useState<AuthMode>(() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.has("reset") ? "reset" : "login";
+    });
+
     const [username, setUsername] = useState("");
-    const [password, setPassword] = useState("");
-
-    const [rememberMe, setRememberMe] = useState(false);
-
     const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [rememberMe, setRememberMe] = useState(false);
     const [authNotice, setAuthNotice] = useState("");
+
+    const [resetToken, setResetToken] = useState<string | null>(() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.get("reset");
+    });
+
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
 
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<User[]>([]);
@@ -151,111 +162,6 @@ function App() {
 
         websocket.send(JSON.stringify(data));
     }
-
-useEffect(() => {
-    async function restoreSession() {
-        localStorage.removeItem(
-            "access_token",
-        );
-
-        try {
-            const session =
-                await refreshSession();
-
-            setToken(
-                session.access_token,
-            );
-        } catch {
-            setToken(null);
-        } finally {
-            setSessionChecked(true);
-        }
-    }
-
-    void restoreSession();
-}, []);
-
-useEffect(() => {
-    const params = new URLSearchParams(
-        window.location.search
-    );
-
-    const verificationToken =
-        params.get("verify");
-
-    if (!verificationToken) {
-        return;
-    }
-
-    async function verify() {
-        setError("");
-        setAuthNotice("");
-
-        try {
-            await verifyEmail(
-                verificationToken!
-            );
-
-            setMode("login");
-
-            setAuthNotice(
-                "Email verified. You can now sign in."
-            );
-        } catch (caughtError) {
-            if (
-                caughtError instanceof Error
-            ) {
-                setError(
-                    caughtError.message
-                );
-            }
-        } finally {
-            params.delete("verify");
-
-            const query =
-                params.toString();
-
-            window.history.replaceState(
-                {},
-                "",
-                query
-                    ? `${window.location.pathname}?${query}`
-                    : window.location.pathname,
-            );
-        }
-    }
-
-    void verify();
-}, []);
-
-useEffect(() => {
-    if (!token || !user) {
-        return;
-    }
-
-    const interval = window.setInterval(
-        async () => {
-            try {
-                const session =
-                    await refreshSession();
-
-                setToken(
-                    session.access_token,
-                );
-            } catch {
-                setToken(null);
-                setUser(null);
-            }
-        },
-        10 * 60 * 1000,
-    );
-
-    return () => {
-        window.clearInterval(
-            interval,
-        );
-    };
-}, [Boolean(token), user?.id]);
 
 
     function stopTyping() {
@@ -325,66 +231,143 @@ useEffect(() => {
 
 
     useEffect(() => {
-    if (!sessionChecked) {
-        return;
-    }
+        const params = new URLSearchParams(window.location.search);
+        const verificationToken = params.get("verify");
 
-    if (!token) {
-        setUser(null);
-        setChats([]);
-        setActiveChat(null);
-        setMessages([]);
-        setAppLoading(false);
-
-        return;
-    }
-
-    if (user) {
-        setAppLoading(false);
-        return;
-    }
-
-    async function loadSession() {
-        setAppLoading(true);
-
-        try {
-            const [
-                currentUser,
-                userChats,
-            ] = await Promise.all([
-                getCurrentUser(token!),
-                getChats(token!),
-            ]);
-
-            setUser(currentUser);
-
-            const sortedChats =
-                sortChats(userChats);
-
-            setChats(sortedChats);
-
-            if (
-                sortedChats.length > 0
-            ) {
-                await openChat(
-                    sortedChats[0],
-                    token!,
-                );
-            }
-        } catch {
-            setToken(null);
-            setUser(null);
-        } finally {
-            setAppLoading(false);
+        if (!verificationToken) {
+            return;
         }
-    }
 
-    void loadSession();
-}, [
-    token,
-    sessionChecked,
-    user,
-]);
+        async function verifyAccountEmail() {
+            setAuthLoading(true);
+            setError("");
+
+            try {
+                await verifyEmail(verificationToken!);
+                setMode("login");
+                setAuthNotice(
+                    "Email verified. You can now sign in.",
+                );
+            } catch (caughtError) {
+                if (caughtError instanceof Error) {
+                    setError(caughtError.message);
+                } else {
+                    setError("Email verification failed");
+                }
+            } finally {
+                const url = new URL(window.location.href);
+                url.searchParams.delete("verify");
+
+                window.history.replaceState(
+                    {},
+                    "",
+                    url.pathname + url.search + url.hash,
+                );
+
+                setAuthLoading(false);
+            }
+        }
+
+        void verifyAccountEmail();
+    }, []);
+
+
+    useEffect(() => {
+        async function restoreSession() {
+            localStorage.removeItem("access_token");
+
+            if (resetToken) {
+                setToken(null);
+                setUser(null);
+                setSessionChecked(true);
+                setAppLoading(false);
+                return;
+            }
+
+            try {
+                const session = await refreshSession();
+                setToken(session.access_token);
+            } catch {
+                setToken(null);
+            } finally {
+                setSessionChecked(true);
+            }
+        }
+
+        void restoreSession();
+    }, [resetToken]);
+
+
+    useEffect(() => {
+        if (!sessionChecked) {
+            return;
+        }
+
+        if (!token) {
+            setUser(null);
+            setChats([]);
+            setActiveChat(null);
+            setMessages([]);
+            setAppLoading(false);
+            return;
+        }
+
+        if (user) {
+            setAppLoading(false);
+            return;
+        }
+
+        async function loadSession() {
+            setAppLoading(true);
+
+            try {
+                const [currentUser, userChats] = await Promise.all([
+                    getCurrentUser(token!),
+                    getChats(token!),
+                ]);
+
+                setUser(currentUser);
+
+                const sortedChats = sortChats(userChats);
+                setChats(sortedChats);
+
+                if (sortedChats.length > 0) {
+                    await openChat(sortedChats[0], token!);
+                }
+            } catch {
+                setToken(null);
+                setUser(null);
+            } finally {
+                setAppLoading(false);
+            }
+        }
+
+        void loadSession();
+    }, [token, sessionChecked, user]);
+
+
+    useEffect(() => {
+        if (!token || !user) {
+            return;
+        }
+
+        const interval = window.setInterval(
+            async () => {
+                try {
+                    const session = await refreshSession();
+                    setToken(session.access_token);
+                } catch {
+                    setToken(null);
+                    setUser(null);
+                }
+            },
+            10 * 60 * 1000,
+        );
+
+        return () => {
+            window.clearInterval(interval);
+        };
+    }, [Boolean(token), user?.id]);
 
 
     useEffect(() => {
@@ -650,20 +633,56 @@ useEffect(() => {
         setAuthLoading(true);
 
         try {
-            if (mode === "register") {
-                await registerUser(
-                    username,
-                    email,
-                    password,
-                );
-
-                setPassword("");
-                setMode("login");
+            if (mode === "forgot") {
+                await forgotPassword(email);
 
                 setAuthNotice(
-                    `Account created. Verify ${email} before signing in.`
+                    "If an account with that email exists, a password reset link has been sent.",
+                );
+                setMode("login");
+                return;
+            }
+
+            if (mode === "reset") {
+                if (!resetToken) {
+                    setError("Invalid password reset link");
+                    return;
+                }
+
+                if (newPassword !== confirmPassword) {
+                    setError("Passwords do not match");
+                    return;
+                }
+
+                await resetPassword(resetToken, newPassword);
+
+                setNewPassword("");
+                setConfirmPassword("");
+                setResetToken(null);
+
+                const url = new URL(window.location.href);
+                url.searchParams.delete("reset");
+
+                window.history.replaceState(
+                    {},
+                    "",
+                    url.pathname + url.search + url.hash,
                 );
 
+                setMode("login");
+                setAuthNotice(
+                    "Password changed. You can now sign in with your new password.",
+                );
+                return;
+            }
+
+            if (mode === "register") {
+                await registerUser(username, email, password);
+                setPassword("");
+                setMode("login");
+                setAuthNotice(
+                    `Account created. Verify ${email} before signing in.`,
+                );
                 return;
             }
 
@@ -673,18 +692,8 @@ useEffect(() => {
                 rememberMe,
             );
 
-            // localStorage.setItem(
-            //     "access_token",
-            //     loginResponse.access_token,
-            // );
-
+            setAuthNotice("");
             setUser(null);
-
-                setToken(
-                    loginResponse.access_token,
-                );
-
-
             setToken(loginResponse.access_token);
             setPassword("");
         } catch (caughtError) {
@@ -1015,29 +1024,28 @@ useEffect(() => {
     }
 
 
-async function logout() {
-    stopTyping();
+    async function logout() {
+        stopTyping();
 
-    try {
-        await logoutSession();
-    } catch {
-        // Clear local state even if
-        // the backend is unavailable.
+        try {
+            await logoutSession();
+        } catch {
+            // Clear local state even if the backend is unavailable.
+        }
+
+        setReplyingTo(null);
+        setToken(null);
+        setUser(null);
+        setChats([]);
+        setActiveChat(null);
+        setMessages([]);
+        setSearchResults([]);
+        setSearchQuery("");
+        setProfileOpen(false);
+        setWsStatus("disconnected");
+        setOnlineUserIds(new Set());
+        setTypingUserIds(new Set());
     }
-
-    setReplyingTo(null);
-    setToken(null);
-    setUser(null);
-    setChats([]);
-    setActiveChat(null);
-    setMessages([]);
-    setSearchResults([]);
-    setSearchQuery("");
-    setProfileOpen(false);
-    setWsStatus("disconnected");
-    setOnlineUserIds(new Set());
-    setTypingUserIds(new Set());
-}
 
 
     function closeChat() {
@@ -1095,6 +1103,15 @@ async function logout() {
     }
 
 
+    if (!sessionChecked) {
+        return (
+            <main className="loading-page">
+                Loading Messenger...
+            </main>
+        );
+    }
+
+
     if (!token) {
         return (
             <main className="auth-page">
@@ -1104,16 +1121,35 @@ async function logout() {
                     <h1>Messenger</h1>
 
                     <p className="subtitle">
-                        {mode === "login"
-                            ? "Sign in to continue"
-                            : "Create your account"}
+                        {mode === "login" && "Sign in to continue"}
+                        {mode === "register" && "Create your account"}
+                        {mode === "forgot" && "Reset your password"}
+                        {mode === "reset" && "Choose a new password"}
                     </p>
 
                     <form onSubmit={handleAuthSubmit}>
-                        <label htmlFor="username">
-                            Username
-                        </label>
-                            {mode === "register" && (
+                        {(mode === "login" || mode === "register") && (
+                            <>
+                                <label htmlFor="username">
+                                    Username
+                                </label>
+
+                                <input
+                                    id="username"
+                                    type="text"
+                                    value={username}
+                                    onChange={(event) =>
+                                        setUsername(event.target.value)
+                                    }
+                                    minLength={3}
+                                    maxLength={32}
+                                    autoComplete="username"
+                                    required
+                                />
+                            </>
+                        )}
+
+                        {(mode === "register" || mode === "forgot") && (
                             <>
                                 <label htmlFor="email">
                                     Email
@@ -1124,39 +1160,90 @@ async function logout() {
                                     type="email"
                                     value={email}
                                     onChange={(event) =>
-                                        setEmail(
-                                            event.target.value
-                                        )
+                                        setEmail(event.target.value)
                                     }
                                     autoComplete="email"
                                     required
                                 />
                             </>
                         )}
-                        <input id="username" type="text" value={username} onChange={(event) => setUsername(event.target.value)} minLength={3} maxLength={32} autoComplete="username" required />
 
-                        <label htmlFor="password">
-                            Password
-                        </label>
+                        {(mode === "login" || mode === "register") && (
+                            <>
+                                <label htmlFor="password">
+                                    Password
+                                </label>
 
-                        <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} required />
-                            {mode === "login" && (
+                                <input
+                                    id="password"
+                                    type="password"
+                                    value={password}
+                                    onChange={(event) =>
+                                        setPassword(event.target.value)
+                                    }
+                                    minLength={8}
+                                    autoComplete={
+                                        mode === "login"
+                                            ? "current-password"
+                                            : "new-password"
+                                    }
+                                    required
+                                />
+                            </>
+                        )}
+
+                        {mode === "reset" && (
+                            <>
+                                <label htmlFor="new-password">
+                                    New password
+                                </label>
+
+                                <input
+                                    id="new-password"
+                                    type="password"
+                                    value={newPassword}
+                                    onChange={(event) =>
+                                        setNewPassword(event.target.value)
+                                    }
+                                    autoComplete="new-password"
+                                    minLength={8}
+                                    maxLength={128}
+                                    required
+                                />
+
+                                <label htmlFor="confirm-password">
+                                    Confirm password
+                                </label>
+
+                                <input
+                                    id="confirm-password"
+                                    type="password"
+                                    value={confirmPassword}
+                                    onChange={(event) =>
+                                        setConfirmPassword(event.target.value)
+                                    }
+                                    autoComplete="new-password"
+                                    minLength={8}
+                                    maxLength={128}
+                                    required
+                                />
+                            </>
+                        )}
+
+                        {mode === "login" && (
                             <label className="remember-me">
                                 <input
                                     type="checkbox"
                                     checked={rememberMe}
                                     onChange={(event) =>
-                                        setRememberMe(
-                                            event.target.checked
-                                        )
+                                        setRememberMe(event.target.checked)
                                     }
                                 />
 
-                                <span>
-                                    Remember me
-                                </span>
+                                <span>Remember me</span>
                             </label>
                         )}
+
                         {authNotice && (
                             <div className="profile-success">
                                 {authNotice}
@@ -1169,27 +1256,82 @@ async function logout() {
                             </div>
                         )}
 
-                        <button className="primary-button" type="submit" disabled={authLoading}>
+                        <button
+                            className="primary-button"
+                            type="submit"
+                            disabled={authLoading}
+                        >
                             {authLoading
                                 ? "Please wait..."
                                 : mode === "login"
                                   ? "Sign in"
-                                  : "Create account"}
+                                  : mode === "register"
+                                    ? "Create account"
+                                    : mode === "forgot"
+                                      ? "Send reset link"
+                                      : "Change password"}
                         </button>
                     </form>
 
-                    <button className="mode-button" type="button" onClick={() => {
-                        setError("");
-                        setMode(
-                            mode === "login"
-                                ? "register"
-                                : "login",
-                        );
-                    }}>
-                        {mode === "login"
-                            ? "Create an account"
-                            : "Already have an account?"}
-                    </button>
+                    {mode === "login" && (
+                        <button
+                            className="mode-button"
+                            type="button"
+                            onClick={() => {
+                                setError("");
+                                setAuthNotice("");
+                                setMode("forgot");
+                            }}
+                        >
+                            Forgot password?
+                        </button>
+                    )}
+
+                    {mode === "forgot" && (
+                        <button
+                            className="mode-button"
+                            type="button"
+                            onClick={() => {
+                                setError("");
+                                setMode("login");
+                            }}
+                        >
+                            Back to sign in
+                        </button>
+                    )}
+
+                    {mode === "reset" && (
+                        <button
+                            className="mode-button"
+                            type="button"
+                            onClick={() => {
+                                setError("");
+                                setMode("login");
+                            }}
+                        >
+                            Back to sign in
+                        </button>
+                    )}
+
+                    {(mode === "login" || mode === "register") && (
+                        <button
+                            className="mode-button"
+                            type="button"
+                            onClick={() => {
+                                setError("");
+                                setAuthNotice("");
+                                setMode(
+                                    mode === "login"
+                                        ? "register"
+                                        : "login",
+                                );
+                            }}
+                        >
+                            {mode === "login"
+                                ? "Create an account"
+                                : "Already have an account?"}
+                        </button>
+                    )}
                 </section>
             </main>
         );
