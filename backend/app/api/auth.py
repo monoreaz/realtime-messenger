@@ -1,5 +1,5 @@
 import hashlib
-import logging
+# import logging
 import os
 import secrets
 
@@ -38,8 +38,12 @@ from app.schemas.user import (
     UserResponse,
 )
 
+from app.services.email import (
+    EmailDeliveryError,
+    send_verification_email,
+)
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 
 
@@ -252,6 +256,27 @@ async def register(
             verification_token
         )
 
+        verification_url = (
+        f"{PUBLIC_APP_URL}/"
+        f"?verify={raw_token}"
+    )
+
+        try:
+            await send_verification_email(
+                email,
+                verification_url,
+            )
+        except EmailDeliveryError:
+            await db.rollback()
+
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Could not send verification email. "
+                    "Please try again."
+                ),
+        )
+
         await db.commit()
 
     except IntegrityError:
@@ -267,16 +292,16 @@ async def register(
 
     await db.refresh(user)
 
-    verification_url = (
-        f"{PUBLIC_APP_URL}/"
-        f"?verify={raw_token}"
-    )
+    # verification_url = (
+    #     f"{PUBLIC_APP_URL}/"
+    #     f"?verify={raw_token}"
+    # )
 
-    logger.warning(
-        "Email verification link for %s: %s",
-        user.email,
-        verification_url,
-    )
+    # logger.warning(
+    #     "Email verification link for %s: %s",
+    #     user.email,
+    #     verification_url,
+    # )
 
     return user
 
@@ -299,9 +324,6 @@ async def verify_email(
         ).where(
             EmailVerificationToken.token_hash
             == token_hash,
-            EmailVerificationToken.used_at.is_(
-                None
-            ),
         )
     )
 
@@ -315,16 +337,6 @@ async def verify_email(
             detail="Invalid verification token",
         )
 
-    now = datetime.now(
-        timezone.utc
-    )
-
-    if verification_token.expires_at <= now:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification token expired",
-        )
-
     user = await db.get(
         User,
         verification_token.user_id,
@@ -334,6 +346,27 @@ async def verify_email(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid verification token",
+        )
+
+    if verification_token.used_at is not None:
+        if user.email_verified_at is not None:
+            return Response(
+                status_code=status.HTTP_204_NO_CONTENT
+            )
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification token",
+        )
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    if verification_token.expires_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification token expired",
         )
 
     user.email_verified_at = now

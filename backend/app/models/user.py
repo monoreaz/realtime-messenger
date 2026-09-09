@@ -50,13 +50,13 @@ class User(Base):
     )
 
     email: Mapped[str | None] = mapped_column(
-    String(255),
-    unique=True,
-    index=True,
-    nullable=True,
-)
+        String(255),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
 
-email_verified_at: Mapped[datetime | None] = mapped_column(
-    DateTime(timezone=True),
-    nullable=True,
-)
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
