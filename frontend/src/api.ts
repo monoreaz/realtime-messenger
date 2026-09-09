@@ -7,10 +7,20 @@ export interface User {
     created_at: string;
 }
 
+
 export interface LoginResponse {
     access_token: string;
     token_type: string;
 }
+
+
+export interface LastMessage {
+    id: string;
+    sender_id: string;
+    content: string;
+    created_at: string;
+}
+
 
 export interface Chat {
     id: string;
@@ -22,16 +32,6 @@ export interface Chat {
     peer_last_read_at: string | null;
 }
 
-export interface Message {
-    id: string;
-    chat_id: string;
-    sender_id: string;
-    content: string;
-    created_at: string;
-
-    reply_to_message_id: string | null;
-    reply_to_message: ReplyMessage | null;
-}
 
 export interface ReplyMessage {
     id: string;
@@ -39,18 +39,43 @@ export interface ReplyMessage {
     content: string;
 }
 
-const isDevelopmentServer = window.location.port === "5173";
+
+export interface Message {
+    id: string;
+    chat_id: string;
+    sender_id: string;
+    content: string;
+    created_at: string;
+    reply_to_message_id: string | null;
+    reply_to_message: ReplyMessage | null;
+}
+
+
+export interface ProfileUpdate {
+    username: string;
+    display_name: string | null;
+    bio: string | null;
+}
+
+
+const isDevelopmentServer =
+    window.location.port === "5173";
 
 const API_BASE_URL = isDevelopmentServer
     ? `http://${window.location.hostname}:8000`
     : "/api";
 
 
-async function getErrorMessage(response: Response, fallback: string): Promise<string> {
+async function getErrorMessage(
+    response: Response,
+    fallback: string,
+): Promise<string> {
     try {
         const data = await response.json();
 
-        if (typeof data.detail === "string") {
+        if (
+            typeof data.detail === "string"
+        ) {
             return data.detail;
         }
     } catch {
@@ -94,6 +119,7 @@ export async function registerUser(
     return response.json();
 }
 
+
 export async function verifyEmail(
     token: string,
 ): Promise<void> {
@@ -126,8 +152,9 @@ export async function loginUser(
     username: string,
     password: string,
     rememberMe = false,
-): Promise<TokenResponse> {
-    const formData = new URLSearchParams();
+): Promise<LoginResponse> {
+    const formData =
+        new URLSearchParams();
 
     formData.set(
         "username",
@@ -170,157 +197,131 @@ export async function loginUser(
 }
 
 
-export async function getCurrentUser(token: string): Promise<User> {
-    const response = await fetch(`${API_BASE_URL}/users/me`, {
-        headers: {
-            Authorization: `Bearer ${token}`,
+export async function refreshSession(): Promise<LoginResponse> {
+    const response = await fetch(
+        `${API_BASE_URL}/auth/refresh`,
+        {
+            method: "POST",
+            credentials: "include",
         },
-    });
+    );
 
     if (!response.ok) {
         throw new Error(
-            await getErrorMessage(response, "Could not load current user"),
+            "No active session"
         );
     }
 
     return response.json();
 }
 
-    export interface ProfileUpdate {
-        username: string;
-        display_name: string | null;
-        bio: string | null;
+
+export async function logoutSession(): Promise<void> {
+    const response = await fetch(
+        `${API_BASE_URL}/auth/logout`,
+        {
+            method: "POST",
+            credentials: "include",
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            "Could not log out"
+        );
     }
+}
 
 
-    export async function updateProfile(
-        token: string,
-        profile: ProfileUpdate,
-    ): Promise<User> {
-        const response = await fetch(
-            `${API_BASE_URL}/users/me`,
-            {
-                method: "PATCH",
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(profile),
+export async function getCurrentUser(
+    token: string,
+): Promise<User> {
+    const response = await fetch(
+        `${API_BASE_URL}/users/me`,
+        {
+            headers: {
+                Authorization:
+                    `Bearer ${token}`,
             },
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not load current user",
+            ),
         );
-
-        if (!response.ok) {
-            throw new Error(
-                await getErrorMessage(
-                    response,
-                    "Could not update profile",
-                ),
-            );
-        }
-
-        return response.json();
     }
 
+    return response.json();
+}
 
-    export async function uploadAvatar(
-        token: string,
-        file: File,
-    ): Promise<User> {
-        const formData = new FormData();
 
-        formData.append(
-            "file",
-            file,
-        );
-
-        const response = await fetch(
-            `${API_BASE_URL}/users/me/avatar`,
-            {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-                body: formData,
+export async function updateProfile(
+    token: string,
+    profile: ProfileUpdate,
+): Promise<User> {
+    const response = await fetch(
+        `${API_BASE_URL}/users/me`,
+        {
+            method: "PATCH",
+            headers: {
+                Authorization:
+                    `Bearer ${token}`,
+                "Content-Type":
+                    "application/json",
             },
+            body: JSON.stringify(
+                profile
+            ),
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not update profile",
+            ),
         );
-
-        if (!response.ok) {
-            throw new Error(
-                await getErrorMessage(
-                    response,
-                    "Could not upload avatar",
-                ),
-            );
-        }
-
-        return response.json();
     }
 
+    return response.json();
+}
 
-    export async function removeAvatar(
-        token: string,
-    ): Promise<User> {
-        const response = await fetch(
-            `${API_BASE_URL}/users/me/avatar`,
-            {
-                method: "DELETE",
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
+
+export async function uploadAvatar(
+    token: string,
+    file: File,
+): Promise<User> {
+    const formData =
+        new FormData();
+
+    formData.append(
+        "file",
+        file,
+    );
+
+    const response = await fetch(
+        `${API_BASE_URL}/users/me/avatar`,
+        {
+            method: "POST",
+            headers: {
+                Authorization:
+                    `Bearer ${token}`,
             },
-        );
-
-        if (!response.ok) {
-            throw new Error(
-                await getErrorMessage(
-                    response,
-                    "Could not remove avatar",
-                ),
-            );
-        }
-
-        return response.json();
-    }
-
-
-    export function getMediaUrl(
-        path: string | null,
-    ): string | null {
-        if (!path) {
-            return null;
-        }
-
-        if (
-            path.startsWith("http://") ||
-            path.startsWith("https://")
-        ) {
-            return path;
-        }
-
-        if (isDevelopmentServer) {
-            return (
-                `http://${window.location.hostname}:8000` +
-                path
-            );
-        }
-
-        return `/api${path}`;
-    }
-
-export async function searchUsers(token: string, username: string): Promise<User[]> {
-    const query = new URLSearchParams({
-        username,
-    });
-
-    const response = await fetch(`${API_BASE_URL}/users/search?${query.toString()}`, {
-        headers: {
-            Authorization: `Bearer ${token}`,
+            body: formData,
         },
-    });
+    );
 
     if (!response.ok) {
         throw new Error(
-            await getErrorMessage(response, "Could not search users"),
+            await getErrorMessage(
+                response,
+                "Could not upload avatar",
+            ),
         );
     }
 
@@ -328,16 +329,26 @@ export async function searchUsers(token: string, username: string): Promise<User
 }
 
 
-export async function getChats(token: string): Promise<Chat[]> {
-    const response = await fetch(`${API_BASE_URL}/chats`, {
-        headers: {
-            Authorization: `Bearer ${token}`,
+export async function removeAvatar(
+    token: string,
+): Promise<User> {
+    const response = await fetch(
+        `${API_BASE_URL}/users/me/avatar`,
+        {
+            method: "DELETE",
+            headers: {
+                Authorization:
+                    `Bearer ${token}`,
+            },
         },
-    });
+    );
 
     if (!response.ok) {
         throw new Error(
-            await getErrorMessage(response, "Could not load chats"),
+            await getErrorMessage(
+                response,
+                "Could not remove avatar",
+            ),
         );
     }
 
@@ -345,17 +356,56 @@ export async function getChats(token: string): Promise<Chat[]> {
 }
 
 
-export async function createPrivateChat(token: string, userId: string): Promise<Chat> {
-    const response = await fetch(`${API_BASE_URL}/chats/private/${userId}`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${token}`,
+export function getMediaUrl(
+    path: string | null,
+): string | null {
+    if (!path) {
+        return null;
+    }
+
+    if (
+        path.startsWith("http://") ||
+        path.startsWith("https://")
+    ) {
+        return path;
+    }
+
+    if (isDevelopmentServer) {
+        return (
+            `http://${window.location.hostname}:8000` +
+            path
+        );
+    }
+
+    return `/api${path}`;
+}
+
+
+export async function searchUsers(
+    token: string,
+    username: string,
+): Promise<User[]> {
+    const query =
+        new URLSearchParams({
+            username,
+        });
+
+    const response = await fetch(
+        `${API_BASE_URL}/users/search?${query.toString()}`,
+        {
+            headers: {
+                Authorization:
+                    `Bearer ${token}`,
+            },
         },
-    });
+    );
 
     if (!response.ok) {
         throw new Error(
-            await getErrorMessage(response, "Could not create chat"),
+            await getErrorMessage(
+                response,
+                "Could not search users",
+            ),
         );
     }
 
@@ -363,16 +413,80 @@ export async function createPrivateChat(token: string, userId: string): Promise<
 }
 
 
-export async function getMessages(token: string, chatId: string): Promise<Message[]> {
-    const response = await fetch(`${API_BASE_URL}/chats/${chatId}/messages`, {
-        headers: {
-            Authorization: `Bearer ${token}`,
+export async function getChats(
+    token: string,
+): Promise<Chat[]> {
+    const response = await fetch(
+        `${API_BASE_URL}/chats`,
+        {
+            headers: {
+                Authorization:
+                    `Bearer ${token}`,
+            },
         },
-    });
+    );
 
     if (!response.ok) {
         throw new Error(
-            await getErrorMessage(response, "Could not load messages"),
+            await getErrorMessage(
+                response,
+                "Could not load chats",
+            ),
+        );
+    }
+
+    return response.json();
+}
+
+
+export async function createPrivateChat(
+    token: string,
+    userId: string,
+): Promise<Chat> {
+    const response = await fetch(
+        `${API_BASE_URL}/chats/private/${userId}`,
+        {
+            method: "POST",
+            headers: {
+                Authorization:
+                    `Bearer ${token}`,
+            },
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not create chat",
+            ),
+        );
+    }
+
+    return response.json();
+}
+
+
+export async function getMessages(
+    token: string,
+    chatId: string,
+): Promise<Message[]> {
+    const response = await fetch(
+        `${API_BASE_URL}/chats/${chatId}/messages`,
+        {
+            headers: {
+                Authorization:
+                    `Bearer ${token}`,
+            },
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not load messages",
+            ),
         );
     }
 
@@ -391,8 +505,10 @@ export async function sendMessage(
         {
             method: "POST",
             headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
+                Authorization:
+                    `Bearer ${token}`,
+                "Content-Type":
+                    "application/json",
             },
             body: JSON.stringify({
                 content,
@@ -416,32 +532,22 @@ export async function sendMessage(
 
 
 export function createWebSocket(): WebSocket {
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const protocol =
+        window.location.protocol ===
+        "https:"
+            ? "wss"
+            : "ws";
 
-    const host = isDevelopmentServer
-        ? `${window.location.hostname}:8000`
-        : window.location.host;
+    const host =
+        isDevelopmentServer
+            ? `${window.location.hostname}:8000`
+            : window.location.host;
 
     return new WebSocket(
         `${protocol}://${host}/ws`,
     );
 }
 
-export interface LastMessage {
-    id: string;
-    sender_id: string;
-    content: string;
-    created_at: string;
-}
-
-export interface Chat {
-    id: string;
-    type: string;
-    peer: User;
-    created_at: string;
-    last_message: LastMessage | null;
-    unread_count: number;
-}
 
 export async function markChatRead(
     token: string,
@@ -452,7 +558,8 @@ export async function markChatRead(
         {
             method: "POST",
             headers: {
-                Authorization: `Bearer ${token}`,
+                Authorization:
+                    `Bearer ${token}`,
             },
         },
     );

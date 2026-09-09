@@ -17,6 +17,8 @@ import {
     updateProfile,
     uploadAvatar,
     verifyEmail,
+    logoutSession,
+    refreshSession,
     type Chat,
     type Message,
     type User,
@@ -74,9 +76,9 @@ function UserAvatar({
 
 
 function App() {
-    const [token, setToken] = useState<string | null>(
-        localStorage.getItem("access_token"),
-    );
+    const [token, setToken] = useState<string | null>(null);
+
+    const [sessionChecked, setSessionChecked] = useState(false);
 
     const [user, setUser] = useState<User | null>(null);
     const [chats, setChats] = useState<Chat[]>([]);
@@ -102,7 +104,7 @@ function App() {
     const messageInputRef = useRef<HTMLInputElement | null>(null);
 
     const [authLoading, setAuthLoading] = useState(false);
-    const [appLoading, setAppLoading] = useState(Boolean(token));
+    const [appLoading, setAppLoading] = useState(true);
     const [messagesLoading, setMessagesLoading] = useState(false);
     const [searchLoading, setSearchLoading] = useState(false);
     const [sending, setSending] = useState(false);
@@ -149,6 +151,29 @@ function App() {
 
         websocket.send(JSON.stringify(data));
     }
+
+useEffect(() => {
+    async function restoreSession() {
+        localStorage.removeItem(
+            "access_token",
+        );
+
+        try {
+            const session =
+                await refreshSession();
+
+            setToken(
+                session.access_token,
+            );
+        } catch {
+            setToken(null);
+        } finally {
+            setSessionChecked(true);
+        }
+    }
+
+    void restoreSession();
+}, []);
 
 useEffect(() => {
     const params = new URLSearchParams(
@@ -203,7 +228,36 @@ useEffect(() => {
     void verify();
 }, []);
 
-    
+useEffect(() => {
+    if (!token || !user) {
+        return;
+    }
+
+    const interval = window.setInterval(
+        async () => {
+            try {
+                const session =
+                    await refreshSession();
+
+                setToken(
+                    session.access_token,
+                );
+            } catch {
+                setToken(null);
+                setUser(null);
+            }
+        },
+        10 * 60 * 1000,
+    );
+
+    return () => {
+        window.clearInterval(
+            interval,
+        );
+    };
+}, [Boolean(token), user?.id]);
+
+
     function stopTyping() {
         if (typingTimeoutRef.current) {
             clearTimeout(typingTimeoutRef.current);
@@ -271,36 +325,66 @@ useEffect(() => {
 
 
     useEffect(() => {
-        if (!token) {
-            setAppLoading(false);
-            return;
-        }
+    if (!sessionChecked) {
+        return;
+    }
 
-        async function loadSession() {
-            try {
-                const [currentUser, userChats] = await Promise.all([
-                    getCurrentUser(token!),
-                    getChats(token!),
-                ]);
+    if (!token) {
+        setUser(null);
+        setChats([]);
+        setActiveChat(null);
+        setMessages([]);
+        setAppLoading(false);
 
-                setUser(currentUser);
-                setChats(sortChats(userChats));
+        return;
+    }
 
-                if (userChats.length > 0) {
-                    await openChat(
-                        sortChats(userChats)[0],
-                        token!,
-                    );
-                }
-            } catch {
-                logout();
-            } finally {
-                setAppLoading(false);
+    if (user) {
+        setAppLoading(false);
+        return;
+    }
+
+    async function loadSession() {
+        setAppLoading(true);
+
+        try {
+            const [
+                currentUser,
+                userChats,
+            ] = await Promise.all([
+                getCurrentUser(token!),
+                getChats(token!),
+            ]);
+
+            setUser(currentUser);
+
+            const sortedChats =
+                sortChats(userChats);
+
+            setChats(sortedChats);
+
+            if (
+                sortedChats.length > 0
+            ) {
+                await openChat(
+                    sortedChats[0],
+                    token!,
+                );
             }
+        } catch {
+            setToken(null);
+            setUser(null);
+        } finally {
+            setAppLoading(false);
         }
+    }
 
-        void loadSession();
-    }, [token]);
+    void loadSession();
+}, [
+    token,
+    sessionChecked,
+    user,
+]);
 
 
     useEffect(() => {
@@ -589,10 +673,17 @@ useEffect(() => {
                 rememberMe,
             );
 
-            localStorage.setItem(
-                "access_token",
-                loginResponse.access_token,
-            );
+            // localStorage.setItem(
+            //     "access_token",
+            //     loginResponse.access_token,
+            // );
+
+            setUser(null);
+
+                setToken(
+                    loginResponse.access_token,
+                );
+
 
             setToken(loginResponse.access_token);
             setPassword("");
@@ -924,23 +1015,29 @@ useEffect(() => {
     }
 
 
-    function logout() {
-        stopTyping();
-        setReplyingTo(null);
-        localStorage.removeItem("access_token");
+async function logout() {
+    stopTyping();
 
-        setToken(null);
-        setUser(null);
-        setChats([]);
-        setActiveChat(null);
-        setMessages([]);
-        setSearchResults([]);
-        setSearchQuery("");
-        setProfileOpen(false);
-        setWsStatus("disconnected");
-        setOnlineUserIds(new Set());
-        setTypingUserIds(new Set());
+    try {
+        await logoutSession();
+    } catch {
+        // Clear local state even if
+        // the backend is unavailable.
     }
+
+    setReplyingTo(null);
+    setToken(null);
+    setUser(null);
+    setChats([]);
+    setActiveChat(null);
+    setMessages([]);
+    setSearchResults([]);
+    setSearchQuery("");
+    setProfileOpen(false);
+    setWsStatus("disconnected");
+    setOnlineUserIds(new Set());
+    setTypingUserIds(new Set());
+}
 
 
     function closeChat() {
