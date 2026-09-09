@@ -122,23 +122,47 @@ export async function verifyEmail(
 }
 
 
-export async function loginUser(username: string, password: string): Promise<LoginResponse> {
-    const body = new URLSearchParams();
+export async function loginUser(
+    username: string,
+    password: string,
+    rememberMe = false,
+): Promise<TokenResponse> {
+    const formData = new URLSearchParams();
 
-    body.set("username", username);
-    body.set("password", password);
+    formData.set(
+        "username",
+        username,
+    );
 
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
+    formData.set(
+        "password",
+        password,
+    );
+
+    formData.set(
+        "remember_me",
+        String(rememberMe),
+    );
+
+    const response = await fetch(
+        `${API_BASE_URL}/auth/login`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type":
+                    "application/x-www-form-urlencoded",
+            },
+            body: formData,
+            credentials: "include",
         },
-        body,
-    });
+    );
 
     if (!response.ok) {
         throw new Error(
-            await getErrorMessage(response, "Login failed"),
+            await getErrorMessage(
+                response,
+                "Login failed",
+            ),
         );
     }
 

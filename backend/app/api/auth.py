@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import (
     APIRouter,
     Depends,
+    Form,
     HTTPException,
     Request,
     Response,
@@ -41,6 +42,8 @@ from app.schemas.user import (
 logger = logging.getLogger(__name__)
 
 
+
+
 EMAIL_VERIFICATION_EXPIRE_MINUTES = int(
     os.getenv(
         "EMAIL_VERIFICATION_EXPIRE_MINUTES",
@@ -57,6 +60,13 @@ REFRESH_TOKEN_SESSION_HOURS = int(
     os.getenv(
         "REFRESH_TOKEN_SESSION_HOURS",
         "24",
+    )
+)
+
+REFRESH_TOKEN_REMEMBER_DAYS = int(
+    os.getenv(
+        "REFRESH_TOKEN_REMEMBER_DAYS",
+        "30",
     )
 )
 
@@ -96,20 +106,34 @@ def hash_raw_token(
 def set_refresh_cookie(
     response: Response,
     token: str,
+    remember_me: bool,
 ) -> None:
+    cookie_options = {
+        "key": REFRESH_COOKIE_NAME,
+        "value": token,
+        "httponly": True,
+        "secure": COOKIE_SECURE,
+        "samesite": COOKIE_SAMESITE,
+        "path": "/",
+    }
+
+    if remember_me:
+        cookie_options["max_age"] = (
+            REFRESH_TOKEN_REMEMBER_DAYS
+            * 24
+            * 60
+            * 60
+        )
+
     response.set_cookie(
-        key=REFRESH_COOKIE_NAME,
-        value=token,
-        httponly=True,
-        secure=COOKIE_SECURE,
-        samesite=COOKIE_SAMESITE,
-        path="/",
+        **cookie_options
     )
 
 
 async def create_refresh_session(
     db: AsyncSession,
     user_id,
+    remember_me: bool,
 ) -> str:
     raw_token = secrets.token_urlsafe(
         48
@@ -119,17 +143,28 @@ async def create_refresh_session(
         timezone.utc
     )
 
+    if remember_me:
+        expires_at = (
+            now
+            + timedelta(
+                days=REFRESH_TOKEN_REMEMBER_DAYS
+            )
+        )
+    else:
+        expires_at = (
+            now
+            + timedelta(
+                hours=REFRESH_TOKEN_SESSION_HOURS
+            )
+        )
+
     session = AuthSession(
         user_id=user_id,
         token_hash=hash_raw_token(
             raw_token
         ),
-        expires_at=(
-            now
-            + timedelta(
-                hours=REFRESH_TOKEN_SESSION_HOURS
-            )
-        ),
+        remember_me=remember_me,
+        expires_at=expires_at,
     )
 
     db.add(session)
@@ -321,6 +356,10 @@ async def login(
         OAuth2PasswordRequestForm,
         Depends(),
     ],
+    remember_me: Annotated[
+        bool,
+        Form(),
+    ] = False,
     db: AsyncSession = Depends(get_db),
 ):
     username = (
@@ -368,6 +407,7 @@ async def login(
         await create_refresh_session(
             db,
             user.id,
+            remember_me,
         )
     )
 
@@ -376,6 +416,7 @@ async def login(
     set_refresh_cookie(
         response,
         raw_refresh_token,
+        remember_me,
     )
 
     access_token = create_access_token(
@@ -487,6 +528,7 @@ async def refresh_access_token(
     set_refresh_cookie(
         response,
         new_raw_token,
+        session.remember_me,
     )
 
     access_token = create_access_token(

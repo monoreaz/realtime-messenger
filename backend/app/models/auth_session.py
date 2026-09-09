@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Uuid, func
 
 from app.database import Base
 
@@ -15,6 +16,7 @@ class AuthSession(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
+
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
@@ -33,6 +35,12 @@ class AuthSession(Base):
         index=True,
     )
 
+    remember_me: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

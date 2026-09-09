@@ -87,6 +87,8 @@ function App() {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
 
+    const [rememberMe, setRememberMe] = useState(false);
+
     const [email, setEmail] = useState("");
     const [authNotice, setAuthNotice] = useState("");
 
@@ -584,6 +586,7 @@ useEffect(() => {
             const loginResponse = await loginUser(
                 username,
                 password,
+                rememberMe,
             );
 
             localStorage.setItem(
@@ -1040,7 +1043,23 @@ useEffect(() => {
                         </label>
 
                         <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} required />
+                            {mode === "login" && (
+                            <label className="remember-me">
+                                <input
+                                    type="checkbox"
+                                    checked={rememberMe}
+                                    onChange={(event) =>
+                                        setRememberMe(
+                                            event.target.checked
+                                        )
+                                    }
+                                />
 
+                                <span>
+                                    Remember me
+                                </span>
+                            </label>
+                        )}
                         {authNotice && (
                             <div className="profile-success">
                                 {authNotice}
