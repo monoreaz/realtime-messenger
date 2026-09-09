@@ -10,6 +10,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Request,
     Response,
     status,
 )
@@ -24,6 +25,7 @@ from app.core.security import (
     verify_password,
 )
 from app.database import get_db
+from app.models.auth_session import AuthSession
 from app.models.email_verification import EmailVerificationToken
 from app.models.user import User
 from app.schemas.auth import (
@@ -51,11 +53,90 @@ PUBLIC_APP_URL = os.getenv(
     "http://localhost:5173",
 ).rstrip("/")
 
+REFRESH_TOKEN_SESSION_HOURS = int(
+    os.getenv(
+        "REFRESH_TOKEN_SESSION_HOURS",
+        "24",
+    )
+)
+
+REFRESH_COOKIE_NAME = os.getenv(
+    "REFRESH_COOKIE_NAME",
+    "messenger_refresh",
+)
+
+COOKIE_SECURE = (
+    os.getenv(
+        "COOKIE_SECURE",
+        "true",
+    ).lower()
+    == "true"
+)
+
+COOKIE_SAMESITE = os.getenv(
+    "COOKIE_SAMESITE",
+    "lax",
+)
+
 
 router = APIRouter(
     prefix="/auth",
     tags=["auth"],
 )
+
+
+def hash_raw_token(
+    token: str,
+) -> str:
+    return hashlib.sha256(
+        token.encode("utf-8")
+    ).hexdigest()
+
+
+def set_refresh_cookie(
+    response: Response,
+    token: str,
+) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+    )
+
+
+async def create_refresh_session(
+    db: AsyncSession,
+    user_id,
+) -> str:
+    raw_token = secrets.token_urlsafe(
+        48
+    )
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    session = AuthSession(
+        user_id=user_id,
+        token_hash=hash_raw_token(
+            raw_token
+        ),
+        expires_at=(
+            now
+            + timedelta(
+                hours=REFRESH_TOKEN_SESSION_HOURS
+            )
+        ),
+    )
+
+    db.add(session)
+
+    await db.flush()
+
+    return raw_token
 
 
 @router.post(
@@ -73,7 +154,8 @@ async def register(
 
     username_result = await db.execute(
         select(User).where(
-            User.username == user_data.username
+            User.username
+            == user_data.username
         )
     )
 
@@ -112,23 +194,23 @@ async def register(
             32
         )
 
-        token_hash = hashlib.sha256(
-            raw_token.encode("utf-8")
-        ).hexdigest()
-
-        verification_token = EmailVerificationToken(
-            user_id=user.id,
-            token_hash=token_hash,
-            expires_at=(
-                datetime.now(
-                    timezone.utc
-                )
-                + timedelta(
-                    minutes=(
-                        EMAIL_VERIFICATION_EXPIRE_MINUTES
+        verification_token = (
+            EmailVerificationToken(
+                user_id=user.id,
+                token_hash=hash_raw_token(
+                    raw_token
+                ),
+                expires_at=(
+                    datetime.now(
+                        timezone.utc
                     )
-                )
-            ),
+                    + timedelta(
+                        minutes=(
+                            EMAIL_VERIFICATION_EXPIRE_MINUTES
+                        )
+                    )
+                ),
+            )
         )
 
         db.add(
@@ -172,11 +254,9 @@ async def verify_email(
     verification_data: EmailVerificationRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    token_hash = hashlib.sha256(
-        verification_data.token.encode(
-            "utf-8"
-        )
-    ).hexdigest()
+    token_hash = hash_raw_token(
+        verification_data.token
+    )
 
     result = await db.execute(
         select(
@@ -204,10 +284,7 @@ async def verify_email(
         timezone.utc
     )
 
-    if (
-        verification_token.expires_at
-        <= now
-    ):
+    if verification_token.expires_at <= now:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Verification token expired",
@@ -225,7 +302,6 @@ async def verify_email(
         )
 
     user.email_verified_at = now
-
     verification_token.used_at = now
 
     await db.commit()
@@ -240,6 +316,7 @@ async def verify_email(
     response_model=Token,
 )
 async def login(
+    response: Response,
     form_data: Annotated[
         OAuth2PasswordRequestForm,
         Depends(),
@@ -258,9 +335,7 @@ async def login(
         )
     )
 
-    user = (
-        result.scalar_one_or_none()
-    )
+    user = result.scalar_one_or_none()
 
     if (
         user is None
@@ -282,21 +357,188 @@ async def login(
 
     if (
         user.email is not None
-        and user.email_verified_at
-        is None
+        and user.email_verified_at is None
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email is not verified",
         )
 
-    access_token = (
-        create_access_token(
-            str(user.id)
+    raw_refresh_token = (
+        await create_refresh_session(
+            db,
+            user.id,
         )
+    )
+
+    await db.commit()
+
+    set_refresh_cookie(
+        response,
+        raw_refresh_token,
+    )
+
+    access_token = create_access_token(
+        str(user.id)
     )
 
     return Token(
         access_token=access_token,
         token_type="bearer",
+    )
+
+
+@router.post(
+    "/refresh",
+    response_model=Token,
+)
+async def refresh_access_token(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    raw_token = request.cookies.get(
+        REFRESH_COOKIE_NAME
+    )
+
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh session not found",
+        )
+
+    token_hash = hash_raw_token(
+        raw_token
+    )
+
+    result = await db.execute(
+        select(AuthSession).where(
+            AuthSession.token_hash
+            == token_hash,
+            AuthSession.revoked_at.is_(
+                None
+            ),
+        )
+    )
+
+    session = result.scalar_one_or_none()
+
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh session",
+        )
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    if session.expires_at <= now:
+        session.revoked_at = now
+
+        await db.commit()
+
+        response.delete_cookie(
+            key=REFRESH_COOKIE_NAME,
+            path="/",
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh session expired",
+        )
+
+    user = await db.get(
+        User,
+        session.user_id,
+    )
+
+    if user is None:
+        session.revoked_at = now
+
+        await db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
+    if (
+        user.email is not None
+        and user.email_verified_at is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email is not verified",
+        )
+
+    new_raw_token = secrets.token_urlsafe(
+        48
+    )
+
+    session.token_hash = hash_raw_token(
+        new_raw_token
+    )
+
+    session.last_used_at = now
+
+    await db.commit()
+
+    set_refresh_cookie(
+        response,
+        new_raw_token,
+    )
+
+    access_token = create_access_token(
+        str(user.id)
+    )
+
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+    )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def logout(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    raw_token = request.cookies.get(
+        REFRESH_COOKIE_NAME
+    )
+
+    if raw_token:
+        result = await db.execute(
+            select(AuthSession).where(
+                AuthSession.token_hash
+                == hash_raw_token(
+                    raw_token
+                ),
+                AuthSession.revoked_at.is_(
+                    None
+                ),
+            )
+        )
+
+        session = (
+            result.scalar_one_or_none()
+        )
+
+        if session is not None:
+            session.revoked_at = (
+                datetime.now(
+                    timezone.utc
+                )
+            )
+
+            await db.commit()
+
+    response.delete_cookie(
+        key=REFRESH_COOKIE_NAME,
+        path="/",
     )
