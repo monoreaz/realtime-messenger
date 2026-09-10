@@ -41,6 +41,7 @@ from app.schemas.user import (
 from app.schemas.auth import (
     EmailVerificationRequest,
     ForgotPasswordRequest,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     Token,
 )
@@ -60,6 +61,13 @@ EMAIL_VERIFICATION_EXPIRE_MINUTES = int(
     os.getenv(
         "EMAIL_VERIFICATION_EXPIRE_MINUTES",
         "30",
+    )
+)
+
+EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = int(
+    os.getenv(
+        "EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
+        "60",
     )
 )
 
@@ -386,6 +394,137 @@ async def verify_email(
 
     user.email_verified_at = now
     verification_token.used_at = now
+
+    await db.commit()
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT
+    )
+
+@router.post(
+    "/resend-verification",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def resend_verification(
+    data: ResendVerificationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    email = str(
+        data.email
+    ).strip().lower()
+
+    result = await db.execute(
+        select(User).where(
+            User.email == email
+        )
+    )
+
+    user = result.scalar_one_or_none()
+
+    # Always return the same response so the
+    # endpoint does not reveal registered emails.
+    if (
+        user is None
+        or user.email_verified_at is not None
+    ):
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT
+        )
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    latest_result = await db.execute(
+        select(EmailVerificationToken)
+        .where(
+            EmailVerificationToken.user_id
+            == user.id
+        )
+        .order_by(
+            EmailVerificationToken.created_at.desc()
+        )
+        .limit(1)
+    )
+
+    latest_token = (
+        latest_result.scalar_one_or_none()
+    )
+
+    if (
+        latest_token is not None
+        and latest_token.created_at is not None
+        and (
+            now - latest_token.created_at
+        ).total_seconds()
+        < EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS
+    ):
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT
+        )
+
+    # Invalidate previous unused verification links.
+    await db.execute(
+        update(EmailVerificationToken)
+        .where(
+            EmailVerificationToken.user_id
+            == user.id,
+            EmailVerificationToken.used_at.is_(
+                None
+            ),
+        )
+        .values(
+            used_at=now
+        )
+    )
+
+    raw_token = secrets.token_urlsafe(
+        32
+    )
+
+    verification_token = EmailVerificationToken(
+        user_id=user.id,
+        token_hash=hash_raw_token(
+            raw_token
+        ),
+        expires_at=(
+            now
+            + timedelta(
+                minutes=(
+                    EMAIL_VERIFICATION_EXPIRE_MINUTES
+                )
+            )
+        ),
+    )
+
+    db.add(
+        verification_token
+    )
+
+    await db.flush()
+
+    verification_url = (
+        f"{PUBLIC_APP_URL}/"
+        f"?verify={raw_token}"
+    )
+
+    try:
+        await send_verification_email(
+            email,
+            verification_url,
+        )
+    except EmailDeliveryError:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=(
+                "Could not send verification "
+                "email. Please try again."
+            ),
+        )
 
     await db.commit()
 

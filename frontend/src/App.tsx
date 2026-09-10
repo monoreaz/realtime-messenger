@@ -14,6 +14,7 @@ import {
     markChatRead,
     refreshSession,
     registerUser,
+    resendVerification,
     resetPassword,
     removeAvatar,
     searchUsers,
@@ -29,7 +30,7 @@ import {
 import "./App.css";
 
 
-type AuthMode = "login" | "register" | "forgot" | "reset";
+type AuthMode = "login" | "register" | "forgot" | "reset" | "resend";
 type WebSocketStatus = "connecting" | "connected" | "disconnected";
 
 
@@ -643,6 +644,16 @@ function App() {
                 return;
             }
 
+            if (mode === "resend") {
+                await resendVerification(email);
+
+                setAuthNotice(
+                    "If an unverified account with that email exists, a new verification link has been sent.",
+                );
+                setMode("login");
+                return;
+            }
+
             if (mode === "reset") {
                 if (!resetToken) {
                     setError("Invalid password reset link");
@@ -1125,6 +1136,7 @@ function App() {
                         {mode === "register" && "Create your account"}
                         {mode === "forgot" && "Reset your password"}
                         {mode === "reset" && "Choose a new password"}
+                        {mode === "resend" && "Resend verification email"}
                     </p>
 
                     <form onSubmit={handleAuthSubmit}>
@@ -1149,7 +1161,7 @@ function App() {
                             </>
                         )}
 
-                        {(mode === "register" || mode === "forgot") && (
+                        {(mode === "register" || mode === "forgot" || mode === "resend") && (
                             <>
                                 <label htmlFor="email">
                                     Email
@@ -1269,25 +1281,41 @@ function App() {
                                     ? "Create account"
                                     : mode === "forgot"
                                       ? "Send reset link"
-                                      : "Change password"}
+                                      : mode === "resend"
+                                        ? "Resend verification email"
+                                        : "Change password"}
                         </button>
                     </form>
 
                     {mode === "login" && (
-                        <button
-                            className="mode-button"
-                            type="button"
-                            onClick={() => {
-                                setError("");
-                                setAuthNotice("");
-                                setMode("forgot");
-                            }}
-                        >
-                            Forgot password?
-                        </button>
+                        <>
+                            <button
+                                className="mode-button"
+                                type="button"
+                                onClick={() => {
+                                    setError("");
+                                    setAuthNotice("");
+                                    setMode("forgot");
+                                }}
+                            >
+                                Forgot password?
+                            </button>
+
+                            <button
+                                className="mode-button"
+                                type="button"
+                                onClick={() => {
+                                    setError("");
+                                    setAuthNotice("");
+                                    setMode("resend");
+                                }}
+                            >
+                                Resend verification email
+                            </button>
+                        </>
                     )}
 
-                    {mode === "forgot" && (
+                    {(mode === "forgot" || mode === "resend") && (
                         <button
                             className="mode-button"
                             type="button"

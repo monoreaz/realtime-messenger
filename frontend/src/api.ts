@@ -147,6 +147,32 @@ export async function verifyEmail(
     }
 }
 
+export async function resendVerification(
+    email: string,
+): Promise<void> {
+    const response = await fetch(
+        `${API_BASE_URL}/auth/resend-verification`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type":
+                    "application/json",
+            },
+            body: JSON.stringify({
+                email,
+            }),
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not resend verification email",
+            ),
+        );
+    }
+}
 
 export async function loginUser(
     username: string,
