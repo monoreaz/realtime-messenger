@@ -1143,7 +1143,9 @@ function App() {
                         {(mode === "login" || mode === "register") && (
                             <>
                                 <label htmlFor="username">
-                                    Username
+                                    {mode === "login"
+                                        ? "Username or email"
+                                        : "Username"}
                                 </label>
 
                                 <input
@@ -1153,8 +1155,11 @@ function App() {
                                     onChange={(event) =>
                                         setUsername(event.target.value)
                                     }
-                                    minLength={3}
-                                    maxLength={32}
+                                    placeholder={
+                                        mode === "login"
+                                            ? "Username or email"
+                                            : "Username"
+                                    }
                                     autoComplete="username"
                                     required
                                 />

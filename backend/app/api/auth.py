@@ -16,7 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import (
@@ -748,15 +748,16 @@ async def login(
     ] = False,
     db: AsyncSession = Depends(get_db),
 ):
-    username = (
-        form_data.username
-        .strip()
-        .lower()
-    )
+    identifier = form_data.username.strip()
 
     result = await db.execute(
         select(User).where(
-            User.username == username
+            or_(
+                func.lower(User.username)
+                == identifier.lower(),
+                func.lower(User.email)
+                == identifier.lower(),
+            )
         )
     )
 
@@ -771,10 +772,7 @@ async def login(
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=(
-                "Incorrect username "
-                "or password"
-            ),
+            detail="Incorrect username, email or password",
             headers={
                 "WWW-Authenticate": "Bearer",
             },
