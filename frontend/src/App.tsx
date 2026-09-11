@@ -95,6 +95,11 @@ function App() {
     const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
+
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
     const [rememberMe, setRememberMe] = useState(false);
     const [authNotice, setAuthNotice] = useState("");
 
@@ -104,7 +109,7 @@ function App() {
     });
 
     const [newPassword, setNewPassword] = useState("");
-    const [confirmPassword, setConfirmPassword] = useState("");
+    const [resetConfirmPassword, setResetConfirmPassword] = useState("");
 
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<User[]>([]);
@@ -660,7 +665,7 @@ function App() {
                     return;
                 }
 
-                if (newPassword !== confirmPassword) {
+                if (newPassword !== resetConfirmPassword) {
                     setError("Passwords do not match");
                     return;
                 }
@@ -668,7 +673,7 @@ function App() {
                 await resetPassword(resetToken, newPassword);
 
                 setNewPassword("");
-                setConfirmPassword("");
+                setResetConfirmPassword("");
                 setResetToken(null);
 
                 const url = new URL(window.location.href);
@@ -688,8 +693,17 @@ function App() {
             }
 
             if (mode === "register") {
+                if (password !== confirmPassword) {
+                    setError(
+                        "Passwords do not match"
+                    );
+                    return;
+                }
                 await registerUser(username, email, password);
                 setPassword("");
+                setConfirmPassword("");
+                setShowPassword(false);
+                setShowConfirmPassword(false);
                 setMode("login");
                 setAuthNotice(
                     `Account created. Verify ${email} before signing in.`,
@@ -1191,21 +1205,49 @@ function App() {
                                     Password
                                 </label>
 
-                                <input
-                                    id="password"
-                                    type="password"
-                                    value={password}
-                                    onChange={(event) =>
-                                        setPassword(event.target.value)
-                                    }
-                                    minLength={8}
-                                    autoComplete={
-                                        mode === "login"
-                                            ? "current-password"
-                                            : "new-password"
-                                    }
-                                    required
-                                />
+                                <div className="password-input">
+                                    <input
+                                        id="password"
+                                        type={
+                                            showPassword
+                                                ? "text"
+                                                : "password"
+                                        }
+                                        value={password}
+                                        onChange={(event) =>
+                                            setPassword(
+                                                event.target.value
+                                            )
+                                        }
+                                        minLength={8}
+                                        autoComplete={
+                                            mode === "login"
+                                                ? "current-password"
+                                                : "new-password"
+                                        }
+                                        required
+                                    />
+
+                                    <button
+                                        type="button"
+                                        className="password-toggle"
+                                        onClick={() =>
+                                            setShowPassword(
+                                                (current) =>
+                                                    !current
+                                            )
+                                        }
+                                        aria-label={
+                                            showPassword
+                                                ? "Hide password"
+                                                : "Show password"
+                                        }
+                                    >
+                                        {showPassword
+                                            ? "🙈"
+                                            : "👁"}
+                                    </button>
+                        </div>
                             </>
                         )}
 
@@ -1235,9 +1277,9 @@ function App() {
                                 <input
                                     id="confirm-password"
                                     type="password"
-                                    value={confirmPassword}
+                                    value={resetConfirmPassword}
                                     onChange={(event) =>
-                                        setConfirmPassword(event.target.value)
+                                        setResetConfirmPassword(event.target.value)
                                     }
                                     autoComplete="new-password"
                                     minLength={8}
@@ -1246,6 +1288,54 @@ function App() {
                                 />
                             </>
                         )}
+
+                        {mode === "register" && (
+    <>
+                        <label htmlFor="confirm-password">
+                            Confirm password
+                        </label>
+
+                        <div className="password-input">
+                            <input
+                                id="confirm-password"
+                                type={
+                                    showConfirmPassword
+                                        ? "text"
+                                        : "password"
+                                }
+                                value={confirmPassword}
+                                onChange={(event) =>
+                                    setConfirmPassword(
+                                        event.target.value
+                                    )
+                                }
+                                minLength={8}
+                                autoComplete="new-password"
+                                required
+                            />
+
+                            <button
+                                type="button"
+                                className="password-toggle"
+                                onClick={() =>
+                                    setShowConfirmPassword(
+                                        (current) =>
+                                            !current
+                                    )
+                                }
+                                aria-label={
+                                    showConfirmPassword
+                                        ? "Hide password"
+                                        : "Show password"
+                                }
+                            >
+                                {showConfirmPassword
+                                    ? "🙈"
+                                    : "👁"}
+                            </button>
+                        </div>
+                    </>
+                )}
 
                         {mode === "login" && (
                             <label className="remember-me">
@@ -1353,6 +1443,10 @@ function App() {
                             onClick={() => {
                                 setError("");
                                 setAuthNotice("");
+                                setPassword("");
+                                setConfirmPassword("");
+                                setShowPassword(false);
+                                setShowConfirmPassword(false);
                                 setMode(
                                     mode === "login"
                                         ? "register"
