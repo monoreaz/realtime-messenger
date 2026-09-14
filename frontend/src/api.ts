@@ -147,6 +147,43 @@ export async function verifyEmail(
     }
 }
 
+export async function changePassword(
+    token: string,
+    currentPassword: string,
+    newPassword: string,
+): Promise<void> {
+    const response = await fetch(
+        `${API_BASE_URL}/auth/change-password`,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword,
+            }),
+        },
+    );
+
+    if (!response.ok) {
+        let message = "Could not change password";
+
+        try {
+            const data = await response.json();
+
+            if (typeof data.detail === "string") {
+                message = data.detail;
+            }
+        } catch {
+            // Keep the default error message.
+        }
+
+        throw new Error(message);
+    }
+}
+
 export async function resendVerification(
     email: string,
 ): Promise<void> {

@@ -22,6 +22,7 @@ import {
     updateProfile,
     uploadAvatar,
     verifyEmail,
+    changePassword,
     type Chat,
     type Message,
     type User,
@@ -96,6 +97,11 @@ function App() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
+
+    const [currentPassword, setCurrentPassword] = useState("");
+    const [profileNewPassword, setProfileNewPassword] = useState("");
+    const [profileConfirmPassword, setProfileConfirmPassword] = useState("");
+    const [passwordChanging, setPasswordChanging] = useState(false);
 
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -1041,6 +1047,66 @@ function App() {
         }
     }
 
+    async function handleChangePassword(
+    event: FormEvent<HTMLFormElement>,
+) {
+    event.preventDefault();
+
+    if (!token) {
+        return;
+    }
+
+    setError("");
+    setProfileMessage("");
+
+    if (
+        profileNewPassword !==
+        profileConfirmPassword
+    ) {
+        setError("Passwords do not match");
+        return;
+    }
+
+    if (
+        currentPassword ===
+        profileNewPassword
+    ) {
+        setError(
+            "New password must be different from current password"
+        );
+        return;
+    }
+
+    setPasswordChanging(true);
+
+    try {
+        await changePassword(
+            token,
+            currentPassword,
+            profileNewPassword,
+        );
+
+        setCurrentPassword("");
+        setProfileNewPassword("");
+        setProfileConfirmPassword("");
+
+        await logout();
+
+        setAuthNotice(
+            "Password changed. Sign in again."
+        );
+    } catch (caughtError) {
+        if (caughtError instanceof Error) {
+            setError(caughtError.message);
+        } else {
+            setError(
+                "Could not change password"
+            );
+        }
+    } finally {
+        setPasswordChanging(false);
+    }
+}
 
     function closeProfileSettings() {
         setProfileOpen(false);
@@ -1924,6 +1990,87 @@ function App() {
                                     : "Save changes"}
                             </button>
                         </form>
+
+                        <div className="password-settings">
+                            <h3>Change password</h3>
+
+                            <form
+                                className="profile-form password-form"
+                                onSubmit={handleChangePassword}
+                            >
+                                <label htmlFor="current-password">
+                                    Current password
+                                </label>
+
+                                <input
+                                    id="current-password"
+                                    type="password"
+                                    value={currentPassword}
+                                    onChange={(event) =>
+                                        setCurrentPassword(
+                                            event.target.value
+                                        )
+                                    }
+                                    minLength={8}
+                                    maxLength={128}
+                                    autoComplete="current-password"
+                                    required
+                                />
+
+                                <label htmlFor="profile-new-password">
+                                    New password
+                                </label>
+
+                                <input
+                                    id="profile-new-password"
+                                    type="password"
+                                    value={profileNewPassword}
+                                    onChange={(event) =>
+                                        setProfileNewPassword(
+                                            event.target.value
+                                        )
+                                    }
+                                    minLength={8}
+                                    maxLength={128}
+                                    autoComplete="new-password"
+                                    required
+                                />
+
+                                <label htmlFor="profile-confirm-password">
+                                    Confirm new password
+                                </label>
+
+                                <input
+                                    id="profile-confirm-password"
+                                    type="password"
+                                    value={profileConfirmPassword}
+                                    onChange={(event) =>
+                                        setProfileConfirmPassword(
+                                            event.target.value
+                                        )
+                                    }
+                                    minLength={8}
+                                    maxLength={128}
+                                    autoComplete="new-password"
+                                    required
+                                />
+
+                                <button
+                                    className="primary-button"
+                                    type="submit"
+                                    disabled={
+                                        passwordChanging ||
+                                        !currentPassword ||
+                                        !profileNewPassword ||
+                                        !profileConfirmPassword
+                                    }
+                                >
+                                    {passwordChanging
+                                        ? "Changing password..."
+                                        : "Change password"}
+                                </button>
+                            </form>
+                        </div>
                     </section>
                 </div>
             )}

@@ -1339,3 +1339,21 @@ button {
     color: #ffffff;
     opacity: 1;
 }
+
+.password-settings {
+    padding-top: 20px;
+    border-top: 1px solid #253341;
+}
+
+.password-settings h3 {
+    margin: 0 20px 18px;
+    font-size: 17px;
+}
+
+.password-form {
+    padding-bottom: 24px;
+}
+
+.password-form .primary-button {
+    margin-top: 4px;
+}

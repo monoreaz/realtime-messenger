@@ -44,7 +44,9 @@ from app.schemas.auth import (
     ResendVerificationRequest,
     ResetPasswordRequest,
     Token,
+    ChangePasswordRequest,
 )
+from app.core.dependencies import get_current_user
 
 from app.services.email import (
     EmailDeliveryError,
@@ -532,6 +534,59 @@ async def resend_verification(
         status_code=status.HTTP_204_NO_CONTENT
     )
 
+@router.post(
+    "/change-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def change_password(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not verify_password(
+        data.current_password,
+        current_user.password_hash,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    if data.current_password == data.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password",
+        )
+
+    now = datetime.now(timezone.utc)
+
+    current_user.password_hash = hash_password(
+        data.new_password
+    )
+
+    await db.execute(
+        update(AuthSession)
+        .where(
+            AuthSession.user_id == current_user.id,
+            AuthSession.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+
+    await db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == current_user.id,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .values(used_at=now)
+    )
+
+    await db.commit()
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT
+    )
 
 @router.post(
     "/forgot-password",
