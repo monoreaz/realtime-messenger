@@ -1,10 +1,10 @@
 import hashlib
-# import logging
 import os
 import secrets
 
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import (
     APIRouter,
@@ -19,44 +19,36 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.dependencies import get_current_user
 from app.core.security import (
     create_access_token,
     hash_password,
     verify_password,
 )
-from app.models.password_reset import PasswordResetToken
 from app.database import get_db
 from app.models.auth_session import AuthSession
 from app.models.email_verification import EmailVerificationToken
+from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.schemas.auth import (
+    AuthSessionResponse,
+    ChangePasswordRequest,
     EmailVerificationRequest,
+    ForgotPasswordRequest,
+    ResendVerificationRequest,
+    ResetPasswordRequest,
     Token,
 )
 from app.schemas.user import (
     UserCreate,
     UserResponse,
 )
-
-from app.schemas.auth import (
-    EmailVerificationRequest,
-    ForgotPasswordRequest,
-    ResendVerificationRequest,
-    ResetPasswordRequest,
-    Token,
-    ChangePasswordRequest,
-)
-from app.core.dependencies import get_current_user
-
 from app.services.email import (
     EmailDeliveryError,
     send_password_reset_email,
     send_verification_email,
 )
-
-# logger = logging.getLogger(__name__)
-
-
 
 
 EMAIL_VERIFICATION_EXPIRE_MINUTES = int(
@@ -161,12 +153,11 @@ def set_refresh_cookie(
 
 async def create_refresh_session(
     db: AsyncSession,
-    user_id,
+    user_id: UUID,
     remember_me: bool,
+    user_agent: str | None = None,
 ) -> str:
-    raw_token = secrets.token_urlsafe(
-        48
-    )
+    raw_token = secrets.token_urlsafe(48)
 
     now = datetime.now(
         timezone.utc
@@ -194,6 +185,7 @@ async def create_refresh_session(
         ),
         remember_me=remember_me,
         expires_at=expires_at,
+        user_agent=user_agent,
     )
 
     db.add(session)
@@ -282,9 +274,9 @@ async def register(
         )
 
         verification_url = (
-        f"{PUBLIC_APP_URL}/"
-        f"?verify={raw_token}"
-    )
+            f"{PUBLIC_APP_URL}/"
+            f"?verify={raw_token}"
+        )
 
         try:
             await send_verification_email(
@@ -300,7 +292,7 @@ async def register(
                     "Could not send verification email. "
                     "Please try again."
                 ),
-        )
+            )
 
         await db.commit()
 
@@ -316,17 +308,6 @@ async def register(
         )
 
     await db.refresh(user)
-
-    # verification_url = (
-    #     f"{PUBLIC_APP_URL}/"
-    #     f"?verify={raw_token}"
-    # )
-
-    # logger.warning(
-    #     "Email verification link for %s: %s",
-    #     user.email,
-    #     verification_url,
-    # )
 
     return user
 
@@ -403,6 +384,7 @@ async def verify_email(
         status_code=status.HTTP_204_NO_CONTENT
     )
 
+
 @router.post(
     "/resend-verification",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -423,8 +405,6 @@ async def resend_verification(
 
     user = result.scalar_one_or_none()
 
-    # Always return the same response so the
-    # endpoint does not reveal registered emails.
     if (
         user is None
         or user.email_verified_at is not None
@@ -465,7 +445,6 @@ async def resend_verification(
             status_code=status.HTTP_204_NO_CONTENT
         )
 
-    # Invalidate previous unused verification links.
     await db.execute(
         update(EmailVerificationToken)
         .where(
@@ -534,6 +513,7 @@ async def resend_verification(
         status_code=status.HTTP_204_NO_CONTENT
     )
 
+
 @router.post(
     "/change-password",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -558,7 +538,9 @@ async def change_password(
             detail="New password must be different from current password",
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )
 
     current_user.password_hash = hash_password(
         data.new_password
@@ -567,19 +549,29 @@ async def change_password(
     await db.execute(
         update(AuthSession)
         .where(
-            AuthSession.user_id == current_user.id,
-            AuthSession.revoked_at.is_(None),
+            AuthSession.user_id
+            == current_user.id,
+            AuthSession.revoked_at.is_(
+                None
+            ),
         )
-        .values(revoked_at=now)
+        .values(
+            revoked_at=now
+        )
     )
 
     await db.execute(
         update(PasswordResetToken)
         .where(
-            PasswordResetToken.user_id == current_user.id,
-            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.user_id
+            == current_user.id,
+            PasswordResetToken.used_at.is_(
+                None
+            ),
         )
-        .values(used_at=now)
+        .values(
+            used_at=now
+        )
     )
 
     await db.commit()
@@ -587,6 +579,7 @@ async def change_password(
     return Response(
         status_code=status.HTTP_204_NO_CONTENT
     )
+
 
 @router.post(
     "/forgot-password",
@@ -596,7 +589,9 @@ async def forgot_password(
     data: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    email = str(data.email).strip().lower()
+    email = str(
+        data.email
+    ).strip().lower()
 
     result = await db.execute(
         select(User).where(
@@ -606,8 +601,6 @@ async def forgot_password(
 
     user = result.scalar_one_or_none()
 
-    # Always return the same response.
-    # This prevents email enumeration.
     if (
         user is None
         or user.email_verified_at is None
@@ -686,6 +679,7 @@ async def forgot_password(
         status_code=status.HTTP_204_NO_CONTENT
     )
 
+
 @router.post(
     "/reset-password",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -748,8 +742,6 @@ async def reset_password(
 
     reset_token.used_at = now
 
-    # Log out all existing sessions after
-    # changing the password.
     await db.execute(
         update(AuthSession)
         .where(
@@ -764,7 +756,6 @@ async def reset_password(
         )
     )
 
-    # Invalidate any other reset links.
     await db.execute(
         update(PasswordResetToken)
         .where(
@@ -787,11 +778,13 @@ async def reset_password(
         status_code=status.HTTP_204_NO_CONTENT
     )
 
+
 @router.post(
     "/login",
     response_model=Token,
 )
 async def login(
+    request: Request,
     response: Response,
     form_data: Annotated[
         OAuth2PasswordRequestForm,
@@ -803,7 +796,10 @@ async def login(
     ] = False,
     db: AsyncSession = Depends(get_db),
 ):
-    identifier = form_data.username.strip()
+    identifier = (
+        form_data.username
+        .strip()
+    )
 
     result = await db.execute(
         select(User).where(
@@ -847,6 +843,9 @@ async def login(
             db,
             user.id,
             remember_me,
+            request.headers.get(
+                "user-agent"
+            ),
         )
     )
 
@@ -901,7 +900,9 @@ async def refresh_access_token(
         )
     )
 
-    session = result.scalar_one_or_none()
+    session = (
+        result.scalar_one_or_none()
+    )
 
     if session is None:
         raise HTTPException(
@@ -1022,4 +1023,208 @@ async def logout(
     response.delete_cookie(
         key=REFRESH_COOKIE_NAME,
         path="/",
+    )
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT
+    )
+
+
+@router.get(
+    "/sessions",
+    response_model=list[AuthSessionResponse],
+)
+async def get_sessions(
+    request: Request,
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    now = datetime.now(
+        timezone.utc
+    )
+
+    raw_refresh_token = request.cookies.get(
+        REFRESH_COOKIE_NAME
+    )
+
+    current_token_hash = (
+        hash_raw_token(
+            raw_refresh_token
+        )
+        if raw_refresh_token
+        else None
+    )
+
+    result = await db.execute(
+        select(AuthSession)
+        .where(
+            AuthSession.user_id
+            == current_user.id,
+            AuthSession.revoked_at.is_(
+                None
+            ),
+            AuthSession.expires_at
+            > now,
+        )
+        .order_by(
+            AuthSession.created_at.desc()
+        )
+    )
+
+    sessions = (
+        result.scalars().all()
+    )
+
+    return [
+        AuthSessionResponse(
+            id=session.id,
+            user_agent=session.user_agent,
+            remember_me=session.remember_me,
+            created_at=session.created_at,
+            last_used_at=session.last_used_at,
+            expires_at=session.expires_at,
+            current=(
+                current_token_hash is not None
+                and session.token_hash
+                == current_token_hash
+            ),
+        )
+        for session in sessions
+    ]
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_session(
+    session_id: UUID,
+    request: Request,
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AuthSession).where(
+            AuthSession.id
+            == session_id,
+            AuthSession.user_id
+            == current_user.id,
+            AuthSession.revoked_at.is_(
+                None
+            ),
+        )
+    )
+
+    session = (
+        result.scalar_one_or_none()
+    )
+
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+
+    raw_refresh_token = request.cookies.get(
+        REFRESH_COOKIE_NAME
+    )
+
+    if (
+        raw_refresh_token
+        and session.token_hash
+        == hash_raw_token(
+            raw_refresh_token
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use logout to end the current session",
+        )
+
+    session.revoked_at = datetime.now(
+        timezone.utc
+    )
+
+    await db.commit()
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT
+    )
+
+
+@router.post(
+    "/sessions/logout-others",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def logout_other_sessions(
+    request: Request,
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    raw_refresh_token = request.cookies.get(
+        REFRESH_COOKIE_NAME
+    )
+
+    if not raw_refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No active session",
+        )
+
+    current_token_hash = hash_raw_token(
+        raw_refresh_token
+    )
+
+    result = await db.execute(
+        select(AuthSession).where(
+            AuthSession.user_id
+            == current_user.id,
+            AuthSession.token_hash
+            == current_token_hash,
+            AuthSession.revoked_at.is_(
+                None
+            ),
+        )
+    )
+
+    current_session = (
+        result.scalar_one_or_none()
+    )
+
+    if current_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No active session",
+        )
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    await db.execute(
+        update(AuthSession)
+        .where(
+            AuthSession.user_id
+            == current_user.id,
+            AuthSession.id
+            != current_session.id,
+            AuthSession.revoked_at.is_(
+                None
+            ),
+        )
+        .values(
+            revoked_at=now
+        )
+    )
+
+    await db.commit()
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT
     )

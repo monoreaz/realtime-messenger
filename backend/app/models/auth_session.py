@@ -62,3 +62,7 @@ class AuthSession(Base):
         server_default=func.now(),
         nullable=False,
     )
+    user_agent: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+    )
