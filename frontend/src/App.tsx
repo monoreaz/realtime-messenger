@@ -23,16 +23,22 @@ import {
     uploadAvatar,
     verifyEmail,
     changePassword,
+    getSessions,
+    logoutOtherSessions,
+    revokeSession,
+    type SessionInfo,
     type Chat,
     type Message,
     type User,
 } from "./api";
 
 import "./App.css";
+// import "./settings-tabs.css";
 
 
 type AuthMode = "login" | "register" | "forgot" | "reset" | "resend";
 type WebSocketStatus = "connecting" | "connected" | "disconnected";
+type SettingsTab = "profile" | "security" | "sessions" | "privacy";
 
 
 function sortChats(chats: Chat[]): Chat[] {
@@ -78,6 +84,63 @@ function UserAvatar({
     );
 }
 
+function getSessionDeviceName(
+    userAgent: string | null,
+): string {
+    if (!userAgent) {
+        return "Unknown device";
+    }
+
+    let browser = "Browser";
+    let os = "Unknown OS";
+
+    if (userAgent.includes("Edg/")) {
+        browser = "Edge";
+    } else if (userAgent.includes("Firefox/")) {
+        browser = "Firefox";
+    } else if (
+        userAgent.includes("Chrome/") &&
+        !userAgent.includes("Edg/")
+    ) {
+        browser = "Chrome";
+    } else if (
+        userAgent.includes("Safari/") &&
+        !userAgent.includes("Chrome/")
+    ) {
+        browser = "Safari";
+    }
+
+    if (userAgent.includes("Windows")) {
+        os = "Windows";
+    } else if (
+        userAgent.includes("Macintosh") ||
+        userAgent.includes("Mac OS")
+    ) {
+        os = "macOS";
+    } else if (userAgent.includes("Android")) {
+        os = "Android";
+    } else if (
+        userAgent.includes("iPhone") ||
+        userAgent.includes("iPad")
+    ) {
+        os = "iOS";
+    } else if (userAgent.includes("Linux")) {
+        os = "Linux";
+    }
+
+    return `${browser} on ${os}`;
+}
+
+function formatSessionDate(
+    date: string | null,
+): string {
+    if (!date) {
+        return "Never";
+    }
+
+    return new Date(date).toLocaleString();
+}
+
 
 function App() {
     const [token, setToken] = useState<string | null>(null);
@@ -103,6 +166,7 @@ function App() {
     const [profileConfirmPassword, setProfileConfirmPassword] = useState("");
     const [passwordChanging, setPasswordChanging] = useState(false);
 
+    
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -132,6 +196,11 @@ function App() {
     const [searchLoading, setSearchLoading] = useState(false);
     const [sending, setSending] = useState(false);
 
+    const [sessions, setSessions] = useState<SessionInfo[]>([]);
+    const [sessionsLoading, setSessionsLoading] = useState(false);
+    const [sessionActionId, setSessionActionId] = useState<string | null>(null);
+    const [loggingOutOthers, setLoggingOutOthers] = useState(false);
+
     const [error, setError] = useState("");
     const [wsStatus, setWsStatus] = useState<WebSocketStatus>("disconnected");
 
@@ -144,6 +213,9 @@ function App() {
     );
 
     const [profileOpen, setProfileOpen] = useState(false);
+
+    const [settingsTab, setSettingsTab] = useState<SettingsTab>("profile");
+
     const [profileUsername, setProfileUsername] = useState("");
     const [profileDisplayName, setProfileDisplayName] = useState("");
     const [profileBio, setProfileBio] = useState("");
@@ -176,6 +248,31 @@ function App() {
     }
 
 
+    function openProfileSettings() {
+        if (!user) {
+            return;
+        }
+
+        setProfileUsername(user.username);
+        setProfileDisplayName(user.display_name ?? "");
+        setProfileBio(user.bio ?? "");
+        setProfileMessage("");
+        setError("");
+        setSettingsTab("profile");
+        setProfileOpen(true);
+    }
+
+
+    function openSettingsTab(tab: SettingsTab) {
+        setSettingsTab(tab);
+        setProfileMessage("");
+        setError("");
+
+        if (tab === "sessions") {
+            void loadSessions();
+        }
+    }
+
     function stopTyping() {
         if (typingTimeoutRef.current) {
             clearTimeout(typingTimeoutRef.current);
@@ -192,6 +289,24 @@ function App() {
         }
     }
 
+    async function loadSessions() {
+    if (!token) {
+        return;
+    }
+
+    setSessionsLoading(true);
+
+    try {
+        const activeSessions = await getSessions(token);
+        setSessions(activeSessions);
+    } catch (caughtError) {
+        if (caughtError instanceof Error) {
+            setError(caughtError.message);
+        }
+    } finally {
+        setSessionsLoading(false);
+    }
+}
 
     function handleMessageInputChange(
         event: ChangeEvent<HTMLInputElement>,
@@ -931,19 +1046,79 @@ function App() {
     }
 
 
-    function openProfileSettings() {
-        if (!user) {
-            return;
-        }
-
-        setProfileUsername(user.username);
-        setProfileDisplayName(user.display_name ?? "");
-        setProfileBio(user.bio ?? "");
-        setProfileMessage("");
-        setError("");
-        setProfileOpen(true);
+    async function handleRevokeSession(
+    sessionId: string,
+) {
+    if (!token) {
+        return;
     }
 
+    setSessionActionId(sessionId);
+    setError("");
+    setProfileMessage("");
+
+    try {
+        await revokeSession(
+            token,
+            sessionId,
+        );
+
+        setSessions((currentSessions) =>
+            currentSessions.filter(
+                (session) =>
+                    session.id !== sessionId,
+            ),
+        );
+
+        setProfileMessage(
+            "Session logged out"
+        );
+    } catch (caughtError) {
+        if (caughtError instanceof Error) {
+            setError(caughtError.message);
+        } else {
+            setError(
+                "Could not log out session"
+            );
+        }
+    } finally {
+        setSessionActionId(null);
+    }
+}
+
+    async function handleLogoutOtherSessions() {
+    if (!token) {
+        return;
+    }
+
+    setLoggingOutOthers(true);
+    setError("");
+    setProfileMessage("");
+
+    try {
+        await logoutOtherSessions(token);
+
+        setSessions((currentSessions) =>
+            currentSessions.filter(
+                (session) => session.current,
+            ),
+        );
+
+        setProfileMessage(
+            "Other sessions logged out"
+        );
+    } catch (caughtError) {
+        if (caughtError instanceof Error) {
+            setError(caughtError.message);
+        } else {
+            setError(
+                "Could not log out other sessions"
+            );
+        }
+    } finally {
+        setLoggingOutOthers(false);
+    }
+}
 
     async function handleProfileSave(
         event: FormEvent<HTMLFormElement>,
@@ -1110,6 +1285,7 @@ function App() {
 
     function closeProfileSettings() {
         setProfileOpen(false);
+        setSettingsTab("profile");
         setProfileMessage("");
         setError("");
     }
@@ -1913,163 +2089,258 @@ function App() {
 
             {profileOpen && (
                 <div className="profile-overlay">
-                    <section className="profile-settings">
-                        <header className="profile-settings-header">
-                            <h2>Profile</h2>
+                    <section className="settings-window">
+                        <header className="settings-header">
+                            <div>
+                                <h2>Settings</h2>
+                                <span>@{user.username}</span>
+                            </div>
 
-                            <button type="button" onClick={closeProfileSettings} aria-label="Close">
+                            <button className="settings-close-button" type="button" onClick={closeProfileSettings} aria-label="Close settings">
                                 ×
                             </button>
                         </header>
 
-                        <div className="profile-avatar-section">
-                            <UserAvatar
-                                user={user}
-                                className="profile-avatar"
-                            />
+                        <div className="settings-layout">
+                            <nav className="settings-sidebar" aria-label="Settings">
+                                <button className={`settings-tab ${settingsTab === "profile" ? "active" : ""}`} type="button" onClick={() => openSettingsTab("profile")}>
+                                    <span className="settings-tab-icon">👤</span>
+                                    <span>Profile</span>
+                                </button>
 
-                            <div className="profile-avatar-actions">
-                                <label className="avatar-upload-button">
-                                    {avatarUploading
-                                        ? "Uploading..."
-                                        : "Change photo"}
+                                <button className={`settings-tab ${settingsTab === "security" ? "active" : ""}`} type="button" onClick={() => openSettingsTab("security")}>
+                                    <span className="settings-tab-icon">🔒</span>
+                                    <span>Security</span>
+                                </button>
 
-                                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarChange} disabled={avatarUploading} />
-                                </label>
+                                <button className={`settings-tab ${settingsTab === "sessions" ? "active" : ""}`} type="button" onClick={() => openSettingsTab("sessions")}>
+                                    <span className="settings-tab-icon">💻</span>
+                                    <span>Active sessions</span>
+                                </button>
 
-                                {user.avatar_url && (
-                                    <button className="remove-avatar-button" type="button" onClick={() => void handleRemoveAvatar()} disabled={avatarUploading}>
-                                        Remove photo
-                                    </button>
+                                <button className={`settings-tab ${settingsTab === "privacy" ? "active" : ""}`} type="button" onClick={() => openSettingsTab("privacy")}>
+                                    <span className="settings-tab-icon">🛡</span>
+                                    <span>Privacy</span>
+                                </button>
+                            </nav>
+
+                            <div className="settings-content">
+                                {settingsTab === "profile" && (
+                                    <section className="settings-page">
+                                        <div className="settings-page-header">
+                                            <div>
+                                                <h3>Profile</h3>
+                                                <p>Manage how your profile appears to other users.</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="profile-avatar-section">
+                                            <UserAvatar user={user} className="profile-avatar" />
+
+                                            <div className="profile-avatar-actions">
+                                                <label className="avatar-upload-button">
+                                                    {avatarUploading ? "Uploading..." : "Change photo"}
+                                                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarChange} disabled={avatarUploading} hidden />
+                                                </label>
+
+                                                {user.avatar_url && (
+                                                    <button className="remove-avatar-button" type="button" onClick={() => void handleRemoveAvatar()} disabled={avatarUploading}>
+                                                        Remove photo
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <form className="profile-form settings-form" onSubmit={handleProfileSave}>
+                                            <label htmlFor="profile-display-name">Display name</label>
+                                            <input id="profile-display-name" type="text" value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} maxLength={64} placeholder="Your name" autoComplete="name" />
+
+                                            <label htmlFor="profile-username">Username</label>
+                                            <div className="username-input">
+                                                <span>@</span>
+                                                <input id="profile-username" type="text" value={profileUsername} onChange={(event) => setProfileUsername(event.target.value)} minLength={3} maxLength={32} autoComplete="username" required />
+                                            </div>
+
+                                            <label htmlFor="profile-bio">Bio</label>
+                                            <textarea id="profile-bio" value={profileBio} onChange={(event) => setProfileBio(event.target.value)} maxLength={160} placeholder="Tell something about yourself" rows={4} />
+
+                                            <div className="bio-counter">{profileBio.length}/160</div>
+
+                                            {error && <div className="error-message">{error}</div>}
+                                            {profileMessage && <div className="profile-success">{profileMessage}</div>}
+
+                                            <button className="primary-button" type="submit" disabled={profileSaving || !profileUsername.trim()}>
+                                                {profileSaving ? "Saving..." : "Save changes"}
+                                            </button>
+                                        </form>
+                                    </section>
+                                )}
+
+                                {settingsTab === "security" && (
+                                    <section className="settings-page">
+                                        <div className="settings-page-header">
+                                            <div>
+                                                <h3>Security</h3>
+                                                <p>Manage your password and account security.</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="settings-card">
+                                            <div className="settings-card-heading">
+                                                <h4>Change password</h4>
+                                                <p>Changing your password will sign you out on every device.</p>
+                                            </div>
+
+                                            <form className="profile-form settings-form password-form" onSubmit={handleChangePassword}>
+                                                <label htmlFor="current-password">Current password</label>
+                                                <input id="current-password" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} minLength={8} maxLength={128} autoComplete="current-password" required />
+
+                                                <label htmlFor="profile-new-password">New password</label>
+                                                <input id="profile-new-password" type="password" value={profileNewPassword} onChange={(event) => setProfileNewPassword(event.target.value)} minLength={8} maxLength={128} autoComplete="new-password" required />
+
+                                                <label htmlFor="profile-confirm-password">Confirm new password</label>
+                                                <input id="profile-confirm-password" type="password" value={profileConfirmPassword} onChange={(event) => setProfileConfirmPassword(event.target.value)} minLength={8} maxLength={128} autoComplete="new-password" required />
+
+                                                {error && <div className="error-message">{error}</div>}
+
+                                                <button className="primary-button" type="submit" disabled={passwordChanging || !currentPassword || !profileNewPassword || !profileConfirmPassword}>
+                                                    {passwordChanging ? "Changing password..." : "Change password"}
+                                                </button>
+                                            </form>
+                                        </div>
+
+                                        <div className="settings-card future-security-card">
+                                            <div className="settings-card-heading">
+                                                <h4>Two-factor authentication</h4>
+                                                <p>Add another layer of protection to your account.</p>
+                                            </div>
+
+                                            <span className="settings-coming-soon">Coming later</span>
+                                        </div>
+                                    </section>
+                                )}
+
+                                {settingsTab === "sessions" && (
+                                    <section className="settings-page">
+                                        <div className="settings-page-header sessions-page-header">
+                                            <div>
+                                                <h3>Active sessions</h3>
+                                                <p>Manage devices currently signed in to your account.</p>
+                                            </div>
+
+                                            <button className="refresh-sessions-button" type="button" onClick={() => void loadSessions()} disabled={sessionsLoading}>
+                                                {sessionsLoading ? "Loading..." : "Refresh"}
+                                            </button>
+                                        </div>
+
+                                        {error && <div className="error-message settings-message">{error}</div>}
+                                        {profileMessage && <div className="profile-success settings-message">{profileMessage}</div>}
+
+                                        {sessionsLoading && sessions.length === 0 ? (
+                                            <div className="sessions-empty">Loading sessions...</div>
+                                        ) : sessions.length === 0 ? (
+                                            <div className="sessions-empty">No active sessions</div>
+                                        ) : (
+                                            <div className="sessions-list">
+                                                {sessions.map((session) => (
+                                                    <div className={`session-item ${session.current ? "current" : ""}`} key={session.id}>
+                                                        <div className="session-device-icon">
+                                                            {session.current ? "●" : "○"}
+                                                        </div>
+
+                                                        <div className="session-info">
+                                                            <div className="session-title">
+                                                                {getSessionDeviceName(session.user_agent)}
+
+                                                                {session.current && (
+                                                                    <span className="current-session-badge">This device</span>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="session-details">
+                                                                Last active: {session.current ? "Now" : formatSessionDate(session.last_used_at ?? session.created_at)}
+                                                            </div>
+
+                                                            <div className="session-details">
+                                                                Signed in: {formatSessionDate(session.created_at)}
+                                                            </div>
+
+                                                            {session.remember_me && (
+                                                                <div className="session-remembered">Remember me enabled</div>
+                                                            )}
+                                                        </div>
+
+                                                        {!session.current && (
+                                                            <button className="session-logout-button" type="button" disabled={sessionActionId === session.id} onClick={() => void handleRevokeSession(session.id)}>
+                                                                {sessionActionId === session.id ? "Logging out..." : "Log out"}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {sessions.some((session) => !session.current) && (
+                                            <button className="logout-others-button" type="button" onClick={() => void handleLogoutOtherSessions()} disabled={loggingOutOthers}>
+                                                {loggingOutOthers ? "Logging out..." : "Log out all other sessions"}
+                                            </button>
+                                        )}
+                                    </section>
+                                )}
+
+                                {settingsTab === "privacy" && (
+                                    <section className="settings-page">
+                                        <div className="settings-page-header">
+                                            <div>
+                                                <h3>Privacy</h3>
+                                                <p>Control what other users can see and how they can interact with you.</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="privacy-options">
+                                            <div className="privacy-option disabled">
+                                                <div>
+                                                    <strong>Last seen</strong>
+                                                    <span>Choose who can see when you were last online.</span>
+                                                </div>
+                                                <span className="settings-coming-soon">Coming later</span>
+                                            </div>
+
+                                            <div className="privacy-option disabled">
+                                                <div>
+                                                    <strong>Online status</strong>
+                                                    <span>Control who can see when you are online.</span>
+                                                </div>
+                                                <span className="settings-coming-soon">Coming later</span>
+                                            </div>
+
+                                            <div className="privacy-option disabled">
+                                                <div>
+                                                    <strong>Read receipts</strong>
+                                                    <span>Choose whether other users can see when you read their messages.</span>
+                                                </div>
+                                                <span className="settings-coming-soon">Coming later</span>
+                                            </div>
+
+                                            <div className="privacy-option disabled">
+                                                <div>
+                                                    <strong>Profile photo</strong>
+                                                    <span>Choose who can see your profile picture.</span>
+                                                </div>
+                                                <span className="settings-coming-soon">Coming later</span>
+                                            </div>
+
+                                            <div className="privacy-option disabled">
+                                                <div>
+                                                    <strong>Blocked users</strong>
+                                                    <span>Manage people you do not want to receive messages from.</span>
+                                                </div>
+                                                <span className="settings-coming-soon">Coming later</span>
+                                            </div>
+                                        </div>
+                                    </section>
                                 )}
                             </div>
-                        </div>
-
-                        <form className="profile-form" onSubmit={handleProfileSave}>
-                            <label htmlFor="profile-display-name">
-                                Display name
-                            </label>
-
-                            <input id="profile-display-name" type="text" value={profileDisplayName} onChange={(event) => setProfileDisplayName(event.target.value)} maxLength={64} placeholder="Your name" autoComplete="name" />
-
-                            <label htmlFor="profile-username">
-                                Username
-                            </label>
-
-                            <div className="username-input">
-                                <span>@</span>
-
-                                <input id="profile-username" type="text" value={profileUsername} onChange={(event) => setProfileUsername(event.target.value)} minLength={3} maxLength={32} autoComplete="username" required />
-                            </div>
-
-                            <label htmlFor="profile-bio">
-                                Bio
-                            </label>
-
-                            <textarea id="profile-bio" value={profileBio} onChange={(event) => setProfileBio(event.target.value)} maxLength={160} placeholder="Tell something about yourself" rows={4} />
-
-                            <div className="bio-counter">
-                                {profileBio.length}/160
-                            </div>
-
-                            {error && (
-                                <div className="error-message">
-                                    {error}
-                                </div>
-                            )}
-
-                            {profileMessage && (
-                                <div className="profile-success">
-                                    {profileMessage}
-                                </div>
-                            )}
-
-                            <button className="primary-button" type="submit" disabled={profileSaving || !profileUsername.trim()}>
-                                {profileSaving
-                                    ? "Saving..."
-                                    : "Save changes"}
-                            </button>
-                        </form>
-
-                        <div className="password-settings">
-                            <h3>Change password</h3>
-
-                            <form
-                                className="profile-form password-form"
-                                onSubmit={handleChangePassword}
-                            >
-                                <label htmlFor="current-password">
-                                    Current password
-                                </label>
-
-                                <input
-                                    id="current-password"
-                                    type="password"
-                                    value={currentPassword}
-                                    onChange={(event) =>
-                                        setCurrentPassword(
-                                            event.target.value
-                                        )
-                                    }
-                                    minLength={8}
-                                    maxLength={128}
-                                    autoComplete="current-password"
-                                    required
-                                />
-
-                                <label htmlFor="profile-new-password">
-                                    New password
-                                </label>
-
-                                <input
-                                    id="profile-new-password"
-                                    type="password"
-                                    value={profileNewPassword}
-                                    onChange={(event) =>
-                                        setProfileNewPassword(
-                                            event.target.value
-                                        )
-                                    }
-                                    minLength={8}
-                                    maxLength={128}
-                                    autoComplete="new-password"
-                                    required
-                                />
-
-                                <label htmlFor="profile-confirm-password">
-                                    Confirm new password
-                                </label>
-
-                                <input
-                                    id="profile-confirm-password"
-                                    type="password"
-                                    value={profileConfirmPassword}
-                                    onChange={(event) =>
-                                        setProfileConfirmPassword(
-                                            event.target.value
-                                        )
-                                    }
-                                    minLength={8}
-                                    maxLength={128}
-                                    autoComplete="new-password"
-                                    required
-                                />
-
-                                <button
-                                    className="primary-button"
-                                    type="submit"
-                                    disabled={
-                                        passwordChanging ||
-                                        !currentPassword ||
-                                        !profileNewPassword ||
-                                        !profileConfirmPassword
-                                    }
-                                >
-                                    {passwordChanging
-                                        ? "Changing password..."
-                                        : "Change password"}
-                                </button>
-                            </form>
                         </div>
                     </section>
                 </div>

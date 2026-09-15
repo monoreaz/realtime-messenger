@@ -1357,3 +1357,611 @@ button {
 .password-form .primary-button {
     margin-top: 4px;
 }
+
+.sessions-settings {
+    padding: 22px 20px 24px;
+    border-top: 1px solid #253341;
+}
+
+.sessions-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.sessions-header h3 {
+    margin: 0;
+    font-size: 17px;
+}
+
+.sessions-header p {
+    margin: 5px 0 0;
+    color: #8e9ba7;
+    font-size: 13px;
+}
+
+.refresh-sessions-button {
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 7px;
+    background: #202b36;
+    color: #b7c1ca;
+}
+
+.refresh-sessions-button:hover {
+    color: #ffffff;
+}
+
+.refresh-sessions-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.sessions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.session-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px;
+    border: 1px solid #2b3947;
+    border-radius: 10px;
+    background: #202b36;
+}
+
+.session-item.current {
+    border-color: #3390ec;
+}
+
+.session-icon {
+    flex: 0 0 auto;
+    color: #70808f;
+    font-size: 20px;
+}
+
+.session-item.current .session-icon {
+    color: #55c98b;
+}
+
+.session-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.session-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.current-session-badge {
+    padding: 2px 6px;
+    border-radius: 5px;
+    background: rgba(85, 201, 139, 0.14);
+    color: #55c98b;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.session-details {
+    margin-top: 3px;
+    color: #8e9ba7;
+    font-size: 12px;
+}
+
+.session-remembered {
+    margin-top: 4px;
+    color: #69b7ff;
+    font-size: 11px;
+}
+
+.session-logout-button {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #ff7777;
+}
+
+.session-logout-button:hover {
+    background: rgba(255, 119, 119, 0.1);
+}
+
+.session-logout-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.logout-others-button {
+    width: 100%;
+    margin-top: 14px;
+    padding: 10px;
+    border: 1px solid #b63c3c;
+    border-radius: 9px;
+    background: transparent;
+    color: #ff7777;
+}
+
+.logout-others-button:hover {
+    background: rgba(182, 60, 60, 0.12);
+}
+
+.logout-others-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.sessions-empty {
+    padding: 18px;
+    color: #8e9ba7;
+    font-size: 13px;
+    text-align: center;
+}
+
+/* Settings tabs */
+.settings-window {
+    width: min(900px, calc(100vw - 32px));
+    height: min(720px, calc(100vh - 40px));
+    overflow: hidden;
+    border: 1px solid #263544;
+    border-radius: 16px;
+    background: #17212b;
+    color: #ffffff;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.settings-header {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 20px;
+    border-bottom: 1px solid #253341;
+}
+
+.settings-header > div {
+    min-width: 0;
+}
+
+.settings-header h2 {
+    margin: 0;
+    font-size: 20px;
+}
+
+.settings-header span {
+    display: block;
+    margin-top: 2px;
+    color: #7f8c98;
+    font-size: 12px;
+}
+
+.settings-close-button {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #8e9ba7;
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.settings-close-button:hover {
+    background: #202b36;
+    color: #ffffff;
+}
+
+.settings-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    height: calc(100% - 64px);
+}
+
+.settings-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 10px;
+    overflow-y: auto;
+    border-right: 1px solid #253341;
+    background: #151f29;
+}
+
+.settings-tab {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 11px 12px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #a8b3bd;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+}
+
+.settings-tab:hover {
+    background: #202b36;
+    color: #ffffff;
+}
+
+.settings-tab.active {
+    background: #2b5278;
+    color: #ffffff;
+}
+
+.settings-tab-icon {
+    width: 22px;
+    flex: 0 0 22px;
+    text-align: center;
+}
+
+.settings-content {
+    min-width: 0;
+    overflow-y: auto;
+}
+
+.settings-page {
+    width: 100%;
+    max-width: 650px;
+    margin: 0 auto;
+    padding: 26px 28px 34px;
+}
+
+.settings-page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.settings-page-header h3 {
+    margin: 0;
+    font-size: 21px;
+}
+
+.settings-page-header p {
+    margin: 6px 0 0;
+    color: #8e9ba7;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.settings-page .profile-avatar-section {
+    padding: 0 0 24px;
+    margin-bottom: 22px;
+    border-bottom: 1px solid #253341;
+}
+
+.settings-form {
+    padding: 0;
+}
+
+.settings-form .primary-button {
+    margin-top: 4px;
+}
+
+.settings-card {
+    padding: 18px;
+    border: 1px solid #2b3947;
+    border-radius: 12px;
+    background: #1c2732;
+}
+
+.settings-card + .settings-card {
+    margin-top: 14px;
+}
+
+.settings-card-heading {
+    margin-bottom: 18px;
+}
+
+.settings-card-heading h4 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.settings-card-heading p {
+    margin: 5px 0 0;
+    color: #8e9ba7;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.future-security-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.future-security-card .settings-card-heading {
+    margin-bottom: 0;
+}
+
+.settings-coming-soon {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #202f3e;
+    color: #8e9ba7;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.sessions-page-header {
+    align-items: center;
+}
+
+.settings-message {
+    margin-bottom: 14px;
+}
+
+.refresh-sessions-button {
+    flex: 0 0 auto;
+    padding: 8px 11px;
+    border: 1px solid #314355;
+    border-radius: 8px;
+    background: #202b36;
+    color: #b7c1ca;
+    cursor: pointer;
+}
+
+.refresh-sessions-button:hover:not(:disabled) {
+    color: #ffffff;
+    border-color: #3d5369;
+}
+
+.refresh-sessions-button:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.sessions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.session-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #2b3947;
+    border-radius: 11px;
+    background: #1c2732;
+}
+
+.session-item.current {
+    border-color: #3390ec;
+}
+
+.session-device-icon {
+    width: 24px;
+    flex: 0 0 24px;
+    color: #70808f;
+    font-size: 20px;
+    text-align: center;
+}
+
+.session-item.current .session-device-icon {
+    color: #55c98b;
+}
+
+.session-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.session-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.current-session-badge {
+    padding: 2px 6px;
+    border-radius: 5px;
+    background: rgba(85, 201, 139, 0.14);
+    color: #55c98b;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.session-details {
+    margin-top: 3px;
+    color: #8e9ba7;
+    font-size: 12px;
+}
+
+.session-remembered {
+    margin-top: 4px;
+    color: #69b7ff;
+    font-size: 11px;
+}
+
+.session-logout-button {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #ff7777;
+    cursor: pointer;
+}
+
+.session-logout-button:hover:not(:disabled) {
+    background: rgba(255, 119, 119, 0.1);
+}
+
+.session-logout-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.logout-others-button {
+    width: 100%;
+    margin-top: 14px;
+    padding: 10px;
+    border: 1px solid #b63c3c;
+    border-radius: 9px;
+    background: transparent;
+    color: #ff7777;
+    cursor: pointer;
+}
+
+.logout-others-button:hover:not(:disabled) {
+    background: rgba(182, 60, 60, 0.12);
+}
+
+.logout-others-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.sessions-empty {
+    padding: 24px 18px;
+    border: 1px dashed #2b3947;
+    border-radius: 11px;
+    color: #8e9ba7;
+    font-size: 13px;
+    text-align: center;
+}
+
+.privacy-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.privacy-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 15px 16px;
+    border: 1px solid #2b3947;
+    border-radius: 11px;
+    background: #1c2732;
+}
+
+.privacy-option > div {
+    min-width: 0;
+}
+
+.privacy-option strong {
+    display: block;
+    color: #ffffff;
+    font-size: 14px;
+}
+
+.privacy-option > div > span {
+    display: block;
+    margin-top: 4px;
+    color: #8e9ba7;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.privacy-option.disabled {
+    opacity: 0.78;
+}
+
+@media (max-width: 700px) {
+    .settings-window {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        border: 0;
+        border-radius: 0;
+    }
+
+    .settings-layout {
+        display: flex;
+        flex-direction: column;
+        height: calc(100% - 64px);
+    }
+
+    .settings-sidebar {
+        width: 100%;
+        flex-direction: row;
+        flex: 0 0 auto;
+        padding: 8px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        border-right: 0;
+        border-bottom: 1px solid #253341;
+    }
+
+    .settings-tab {
+        width: auto;
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    .settings-tab-icon {
+        display: none;
+    }
+
+    .settings-content {
+        flex: 1;
+    }
+
+    .settings-page {
+        max-width: none;
+        padding: 20px 16px 28px;
+    }
+
+    .settings-page-header {
+        margin-bottom: 20px;
+    }
+
+    .sessions-page-header {
+        align-items: flex-start;
+    }
+
+    .session-item {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .session-info {
+        min-width: calc(100% - 40px);
+    }
+
+    .session-logout-button {
+        margin-left: 36px;
+    }
+
+    .future-security-card,
+    .privacy-option {
+        align-items: flex-start;
+    }
+}
