@@ -34,7 +34,6 @@ import {
 } from "./api";
 
 import "./App.css";
-// import "./settings-tabs.css";
 
 
 type AuthMode = "login" | "register" | "forgot" | "reset" | "resend";
@@ -57,6 +56,13 @@ function sortChats(chats: Chat[]): Chat[] {
             new Date(firstDate).getTime()
         );
     });
+}
+
+
+function getVisibleChats(chats: Chat[]): Chat[] {
+    return sortChats(
+        chats.filter((chat) => chat.last_message !== null),
+    );
 }
 
 
@@ -150,6 +156,7 @@ function App() {
     const [user, setUser] = useState<User | null>(null);
     const [chats, setChats] = useState<Chat[]>([]);
     const [activeChat, setActiveChat] = useState<Chat | null>(null);
+    const [draftPeer, setDraftPeer] = useState<User | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
 
     const [mode, setMode] = useState<AuthMode>(() => {
@@ -228,6 +235,7 @@ function App() {
     const [profileMessage, setProfileMessage] = useState("");
 
     const activeChatIdRef = useRef<string | null>(null);
+    const draftPeerIdRef = useRef<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const websocketRef = useRef<WebSocket | null>(null);
 
@@ -355,6 +363,11 @@ function App() {
 
 
     useEffect(() => {
+        draftPeerIdRef.current = draftPeer?.id ?? null;
+    }, [draftPeer]);
+
+
+    useEffect(() => {
         messagesEndRef.current?.scrollIntoView({
             behavior: "smooth",
         });
@@ -447,6 +460,7 @@ function App() {
             setUser(null);
             setChats([]);
             setActiveChat(null);
+            setDraftPeer(null);
             setMessages([]);
             setAppLoading(false);
             return;
@@ -468,7 +482,7 @@ function App() {
 
                 setUser(currentUser);
 
-                const sortedChats = sortChats(userChats);
+                const sortedChats = getVisibleChats(userChats);
                 setChats(sortedChats);
 
                 if (sortedChats.length > 0) {
@@ -665,6 +679,12 @@ function App() {
                     };
                 });
 
+                setDraftPeer((currentPeer) =>
+                    currentPeer?.id === updatedUser.id
+                        ? updatedUser
+                        : currentPeer,
+                );
+
                 setSearchResults((currentUsers) =>
                     currentUsers.map((searchUser) =>
                         searchUser.id === updatedUser.id
@@ -714,8 +734,64 @@ function App() {
                         };
                     });
 
-                    return sortChats(updatedChats);
+                    return getVisibleChats(updatedChats);
                 });
+
+                // Synchronize the sidebar with the backend on every new
+                // message. This also adds chats that were created by another
+                // user after this page was opened.
+                void getChats(token)
+                    .then((updatedChats) => {
+                        const normalizedChats = updatedChats.map((chat) =>
+                            chat.id === activeChatIdRef.current
+                                ? {
+                                      ...chat,
+                                      unread_count: 0,
+                                  }
+                                : chat,
+                        );
+
+                        const visibleChats = getVisibleChats(normalizedChats);
+                        setChats(visibleChats);
+
+                        const draftPeerId = draftPeerIdRef.current;
+                        const incomingDraftChat =
+                            draftPeerId === incomingMessage.sender_id
+                                ? visibleChats.find(
+                                      (chat) =>
+                                          chat.id === incomingMessage.chat_id,
+                                  )
+                                : undefined;
+
+                        if (incomingDraftChat) {
+                            setDraftPeer(null);
+                            setActiveChat(incomingDraftChat);
+                            activeChatIdRef.current = incomingDraftChat.id;
+                            setMessages((currentMessages) => {
+                                const alreadyExists = currentMessages.some(
+                                    (message) =>
+                                        message.id === incomingMessage.id,
+                                );
+
+                                return alreadyExists
+                                    ? currentMessages
+                                    : [...currentMessages, incomingMessage];
+                            });
+
+                            if (incomingMessage.sender_id !== currentUserId) {
+                                void markChatRead(
+                                    token,
+                                    incomingMessage.chat_id,
+                                );
+                            }
+                        }
+                    })
+                    .catch((error) => {
+                        console.error(
+                            "Could not synchronize chats:",
+                            error,
+                        );
+                    });
 
                 if (!isActiveChat) {
                     return;
@@ -880,6 +956,7 @@ function App() {
         setReplyingTo(null);
         clearSelectedImage();
         setMessageInput("");
+        setDraftPeer(null);
         setActiveChat(chat);
         setTypingUserIds(new Set());
 
@@ -960,42 +1037,38 @@ function App() {
 
         setError("");
 
-        try {
-            const chat = await createPrivateChat(
-                token,
-                targetUser.id,
-            );
+        const existingChat = chats.find(
+            (chat) => chat.peer.id === targetUser.id,
+        );
 
-            setChats((currentChats) => {
-                const alreadyExists = currentChats.some(
-                    (existingChat) =>
-                        existingChat.id === chat.id,
-                );
+        setSearchQuery("");
+        setSearchResults([]);
 
-                if (alreadyExists) {
-                    return currentChats.map((existingChat) =>
-                        existingChat.id === chat.id
-                            ? chat
-                            : existingChat,
-                    );
-                }
-
-                return sortChats([
-                    chat,
-                    ...currentChats,
-                ]);
-            });
-
-            setSearchQuery("");
-            setSearchResults([]);
-
-            await openChat(chat, token);
-        } catch (caughtError) {
-            if (caughtError instanceof Error) {
-                setError(caughtError.message);
-            }
+        if (existingChat) {
+            await openChat(existingChat, token);
+            return;
         }
+
+        stopTyping();
+        setReplyingTo(null);
+        clearSelectedImage();
+        setMessageInput("");
+        setActiveChat(null);
+        setDraftPeer(targetUser);
+        setMessages([]);
+        setTypingUserIds(new Set());
+        setMessagesLoading(false);
+
+        sendWebSocketEvent({
+            type: "presence.get",
+            user_id: targetUser.id,
+        });
+
+        requestAnimationFrame(() => {
+            messageInputRef.current?.focus();
+        });
     }
+
 
     function startReply(
         message: Message,
@@ -1056,7 +1129,7 @@ function App() {
     ) {
         event.preventDefault();
 
-        if (!token || !activeChat) {
+        if (!token || (!activeChat && !draftPeer)) {
             return;
         }
 
@@ -1071,20 +1144,40 @@ function App() {
         setError("");
 
         try {
+            let targetChat = activeChat;
+            const wasDraft = targetChat === null;
+
+            if (!targetChat) {
+                if (!draftPeer) {
+                    return;
+                }
+
+                targetChat = await createPrivateChat(
+                    token,
+                    draftPeer.id,
+                );
+            }
+
             const newMessage = selectedImage
                 ? await sendImageMessage(
                       token,
-                      activeChat.id,
+                      targetChat.id,
                       selectedImage,
                       content,
                       replyingTo?.id ?? null,
                   )
                 : await sendMessage(
                       token,
-                      activeChat.id,
+                      targetChat.id,
                       content,
                       replyingTo?.id ?? null,
                   );
+
+            if (wasDraft) {
+                setDraftPeer(null);
+                setActiveChat(targetChat);
+                activeChatIdRef.current = targetChat.id;
+            }
 
             setMessages((currentMessages) => {
                 const alreadyExists = currentMessages.some(
@@ -1100,6 +1193,16 @@ function App() {
                     newMessage,
                 ];
             });
+
+            try {
+                const updatedChats = await getChats(token);
+                setChats(getVisibleChats(updatedChats));
+            } catch (syncError) {
+                console.error(
+                    "Could not synchronize chats after sending:",
+                    syncError,
+                );
+            }
 
             setMessageInput("");
             clearSelectedImage();
@@ -1375,6 +1478,7 @@ function App() {
         setUser(null);
         setChats([]);
         setActiveChat(null);
+        setDraftPeer(null);
         setMessages([]);
         setSearchResults([]);
         setSearchQuery("");
@@ -1391,6 +1495,7 @@ function App() {
         clearSelectedImage();
         setMessageInput("");
         setActiveChat(null);
+        setDraftPeer(null);
         setMessages([]);
         setTypingUserIds(new Set());
     }
@@ -1788,8 +1893,11 @@ function App() {
     }
 
 
+    const currentPeer = activeChat?.peer ?? draftPeer;
+
+
     return (
-        <main className={`messenger ${activeChat ? "chat-open" : ""}`}>
+        <main className={`messenger ${currentPeer ? "chat-open" : ""}`}>
             <aside className="sidebar">
                 <header className="sidebar-header">
                     <div className="current-user">
@@ -1925,7 +2033,7 @@ function App() {
             </aside>
 
             <section className="chat-panel">
-                {activeChat ? (
+                {currentPeer ? (
                     <>
                         <header className="chat-header">
                             <button className="mobile-back-button" type="button" onClick={closeChat} aria-label="Back to chats">
@@ -1933,36 +2041,36 @@ function App() {
                             </button>
 
                             <UserAvatar
-                                user={activeChat.peer}
+                                user={currentPeer}
                                 className="chat-avatar"
                             />
 
                             <div>
                                 <strong>
                                     {getUserDisplayName(
-                                        activeChat.peer,
+                                        currentPeer,
                                     )}
                                 </strong>
 
                                 <span
                                     className={
                                         typingUserIds.has(
-                                            activeChat.peer.id,
+                                            currentPeer.id,
                                         )
                                             ? "peer-status typing"
                                             : onlineUserIds.has(
-                                                  activeChat.peer.id,
+                                                  currentPeer.id,
                                               )
                                               ? "peer-status online"
                                               : "peer-status"
                                     }
                                 >
                                     {typingUserIds.has(
-                                        activeChat.peer.id,
+                                        currentPeer.id,
                                     )
                                         ? "typing..."
                                         : onlineUserIds.has(
-                                              activeChat.peer.id,
+                                              currentPeer.id,
                                           )
                                           ? "Online"
                                           : "Offline"}
@@ -1988,14 +2096,17 @@ function App() {
                                         message.image_url,
                                     );
 
+                                    const peerLastReadAt =
+                                        activeChat?.peer_last_read_at ?? null;
+
                                     const isRead =
                                         isOwnMessage &&
-                                        activeChat.peer_last_read_at !== null &&
+                                        peerLastReadAt !== null &&
                                         new Date(
                                             message.created_at,
                                         ).getTime() <=
                                             new Date(
-                                                activeChat.peer_last_read_at,
+                                                peerLastReadAt,
                                             ).getTime();
 
                                     const previousMessage =
@@ -2042,7 +2153,7 @@ function App() {
                                                                 user.id
                                                                     ? "You"
                                                                     : getUserDisplayName(
-                                                                        activeChat.peer,
+                                                                        currentPeer,
                                                                     )}
                                                             </strong>
 
@@ -2103,7 +2214,7 @@ function App() {
                                             {replyingTo.sender_id === user.id
                                                 ? "yourself"
                                                 : getUserDisplayName(
-                                                      activeChat.peer,
+                                                      currentPeer,
                                                   )}
                                         </strong>
 
