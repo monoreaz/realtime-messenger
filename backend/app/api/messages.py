@@ -15,6 +15,8 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import datetime, timezone
+
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models.chat import ChatMember
@@ -27,6 +29,12 @@ from app.schemas.message import (
     ReplyMessageResponse,
 )
 
+from app.schemas.message import (
+    MessageCreate,
+    MessageUpdate,
+    MessageResponse,
+    ReplyMessageResponse,
+)
 
 router = APIRouter(
     prefix="/chats",
@@ -129,6 +137,8 @@ def build_message_response(
         content=message.content,
         image_url=message.image_url,
         created_at=message.created_at,
+        edited_at=message.edited_at,
+        deleted_at=message.deleted_at,
         reply_to_message_id=message.reply_to_message_id,
         reply_to_message=reply_response,
     )
@@ -419,3 +429,150 @@ async def get_messages(
         db,
         messages,
     )
+@router.patch(
+    "/{chat_id}/messages/{message_id}",
+    response_model=MessageResponse,
+)
+async def edit_message(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    message_data: MessageUpdate,
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: AsyncSession = Depends(get_db),
+):
+    await check_chat_membership(
+        db,
+        chat_id,
+        current_user.id,
+    )
+
+    result = await db.execute(
+        select(Message).where(
+            Message.id == message_id,
+            Message.chat_id == chat_id,
+        )
+    )
+    message = result.scalar_one_or_none()
+
+    if message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found",
+        )
+
+    if message.sender_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only edit your own messages",
+        )
+
+    if message.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deleted messages cannot be edited",
+        )
+
+    message.content = message_data.content
+    message.edited_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(message)
+
+    message_response = build_message_response(
+        message,
+    )
+
+    result = await db.execute(
+        select(ChatMember.user_id).where(
+            ChatMember.chat_id == chat_id,
+        )
+    )
+    member_ids = list(result.scalars().all())
+
+    await manager.send_to_users(
+        member_ids,
+        {
+            "type": "message.updated",
+            "message": message_response.model_dump(
+                mode="json"
+            ),
+        },
+    )
+
+    return message_response
+
+
+@router.delete(
+    "/{chat_id}/messages/{message_id}",
+    response_model=MessageResponse,
+)
+async def delete_message(
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: AsyncSession = Depends(get_db),
+):
+    await check_chat_membership(
+        db,
+        chat_id,
+        current_user.id,
+    )
+
+    result = await db.execute(
+        select(Message).where(
+            Message.id == message_id,
+            Message.chat_id == chat_id,
+        )
+    )
+    message = result.scalar_one_or_none()
+
+    if message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found",
+        )
+
+    if message.sender_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own messages",
+        )
+
+    if message.deleted_at is not None:
+        return build_message_response(message)
+
+    message.content = ""
+    message.image_url = None
+    message.deleted_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(message)
+
+    message_response = build_message_response(
+        message,
+    )
+
+    result = await db.execute(
+        select(ChatMember.user_id).where(
+            ChatMember.chat_id == chat_id,
+        )
+    )
+    member_ids = list(result.scalars().all())
+
+    await manager.send_to_users(
+        member_ids,
+        {
+            "type": "message.deleted",
+            "message": message_response.model_dump(
+                mode="json"
+            ),
+        },
+    )
+
+    return message_response

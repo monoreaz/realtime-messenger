@@ -49,6 +49,8 @@ export interface Message {
     content: string;
     image_url: string | null;
     created_at: string;
+    edited_at: string | null;
+    deleted_at: string | null;
     reply_to_message_id: string | null;
     reply_to_message: ReplyMessage | null;
 }
@@ -646,6 +648,66 @@ export async function sendMessage(
             await getErrorMessage(
                 response,
                 "Could not send message",
+            ),
+        );
+    }
+
+    return response.json();
+}
+
+export async function editMessage(
+    token: string,
+    chatId: string,
+    messageId: string,
+    content: string,
+): Promise<Message> {
+    const response = await fetch(
+        `${API_BASE_URL}/chats/${chatId}/messages/${messageId}`,
+        {
+            method: "PATCH",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                content,
+            }),
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not edit message",
+            ),
+        );
+    }
+
+    return response.json();
+}
+
+
+export async function deleteMessage(
+    token: string,
+    chatId: string,
+    messageId: string,
+): Promise<Message> {
+    const response = await fetch(
+        `${API_BASE_URL}/chats/${chatId}/messages/${messageId}`,
+        {
+            method: "DELETE",
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not delete message",
             ),
         );
     }

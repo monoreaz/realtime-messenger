@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import type { ChangeEvent, FormEvent, MouseEvent } from "react";
 
 import {
     createPrivateChat,
@@ -27,6 +27,8 @@ import {
     getSessions,
     logoutOtherSessions,
     revokeSession,
+    editMessage,
+    deleteMessage,
     type SessionInfo,
     type Chat,
     type Message,
@@ -197,6 +199,14 @@ function App() {
     const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null);
 
     const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+    const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+    const [messageActionLoading, setMessageActionLoading] = useState<string | null>(null);
+    const [contextMenu, setContextMenu] = useState<{
+        message: Message;
+        x: number;
+        y: number;
+    } | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<Message | null>(null);
 
     const messageInputRef = useRef<HTMLInputElement | null>(null);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -381,6 +391,33 @@ function App() {
             }
         };
     }, [selectedImagePreview]);
+
+
+    useEffect(() => {
+        if (!contextMenu) {
+            return;
+        }
+
+        function closeContextMenu() {
+            setContextMenu(null);
+        }
+
+        function handleKeyDown(event: KeyboardEvent) {
+            if (event.key === "Escape") {
+                setContextMenu(null);
+            }
+        }
+
+        window.addEventListener("click", closeContextMenu);
+        window.addEventListener("resize", closeContextMenu);
+        window.addEventListener("keydown", handleKeyDown);
+
+        return () => {
+            window.removeEventListener("click", closeContextMenu);
+            window.removeEventListener("resize", closeContextMenu);
+            window.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [contextMenu]);
 
 
     useEffect(() => {
@@ -696,6 +733,74 @@ function App() {
                 return;
             }
 
+            if (
+                data.type === "message.updated" ||
+                data.type === "message.deleted"
+            ) {
+                const updatedMessage = data.message as Message;
+
+                if (updatedMessage.chat_id === activeChatIdRef.current) {
+                    setMessages((currentMessages) =>
+                        currentMessages.map((message) =>
+                            message.id === updatedMessage.id
+                                ? updatedMessage
+                                : message,
+                        ),
+                    );
+                }
+
+                if (data.type === "message.deleted") {
+                    setReplyingTo((currentReply) =>
+                        currentReply?.id === updatedMessage.id
+                            ? null
+                            : currentReply,
+                    );
+
+                    setEditingMessage((currentEditingMessage) => {
+                        if (currentEditingMessage?.id === updatedMessage.id) {
+                            setMessageInput("");
+                            return null;
+                        }
+
+                        return currentEditingMessage;
+                    });
+
+                    setContextMenu((currentMenu) =>
+                        currentMenu?.message.id === updatedMessage.id
+                            ? null
+                            : currentMenu,
+                    );
+
+                    setDeleteTarget((currentTarget) =>
+                        currentTarget?.id === updatedMessage.id
+                            ? null
+                            : currentTarget,
+                    );
+                }
+
+                void getChats(token)
+                    .then((updatedChats) => {
+                        const normalizedChats = updatedChats.map((chat) =>
+                            chat.id === activeChatIdRef.current
+                                ? {
+                                      ...chat,
+                                      unread_count: 0,
+                                  }
+                                : chat,
+                        );
+
+                        setChats(getVisibleChats(normalizedChats));
+                    })
+                    .catch((error) => {
+                        console.error(
+                            "Could not synchronize chats after message update:",
+                            error,
+                        );
+                    });
+
+                return;
+            }
+
             if (data.type === "message.new") {
                 const incomingMessage = data.message as Message;
 
@@ -954,6 +1059,9 @@ function App() {
 
         stopTyping();
         setReplyingTo(null);
+        setEditingMessage(null);
+        setContextMenu(null);
+        setDeleteTarget(null);
         clearSelectedImage();
         setMessageInput("");
         setDraftPeer(null);
@@ -1051,6 +1159,9 @@ function App() {
 
         stopTyping();
         setReplyingTo(null);
+        setEditingMessage(null);
+        setContextMenu(null);
+        setDeleteTarget(null);
         clearSelectedImage();
         setMessageInput("");
         setActiveChat(null);
@@ -1073,11 +1184,183 @@ function App() {
     function startReply(
         message: Message,
     ) {
+        if (editingMessage) {
+            setEditingMessage(null);
+            setMessageInput("");
+        }
+
         setReplyingTo(message);
+        setContextMenu(null);
 
         requestAnimationFrame(() => {
             messageInputRef.current?.focus();
         });
+    }
+
+
+    function startEditing(
+        message: Message,
+    ) {
+        setReplyingTo(null);
+        clearSelectedImage();
+        setEditingMessage(message);
+        setMessageInput(message.content);
+        setContextMenu(null);
+
+        requestAnimationFrame(() => {
+            messageInputRef.current?.focus();
+            messageInputRef.current?.select();
+        });
+    }
+
+
+    function cancelEditing() {
+        setEditingMessage(null);
+        setMessageInput("");
+    }
+
+
+    function openMessageContextMenu(
+        event: MouseEvent<HTMLDivElement>,
+        message: Message,
+    ) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const menuWidth = 184;
+        const menuHeight = message.sender_id === user?.id ? 132 : 48;
+
+        setContextMenu({
+            message,
+            x: Math.max(
+                8,
+                Math.min(event.clientX, window.innerWidth - menuWidth - 8),
+            ),
+            y: Math.max(
+                8,
+                Math.min(event.clientY, window.innerHeight - menuHeight - 8),
+            ),
+        });
+    }
+
+
+    function requestDeleteMessage(
+        message: Message,
+    ) {
+        setContextMenu(null);
+        setDeleteTarget(message);
+    }
+
+
+    async function submitEditedMessage() {
+        if (!token || !activeChat || !editingMessage) {
+            return;
+        }
+
+        const content = messageInput.trim();
+
+        if (!content) {
+            return;
+        }
+
+        if (content === editingMessage.content) {
+            cancelEditing();
+            return;
+        }
+
+        setMessageActionLoading(editingMessage.id);
+        setError("");
+        stopTyping();
+
+        try {
+            const updatedMessage = await editMessage(
+                token,
+                activeChat.id,
+                editingMessage.id,
+                content,
+            );
+
+            setMessages((currentMessages) =>
+                currentMessages.map((message) =>
+                    message.id === updatedMessage.id
+                        ? updatedMessage
+                        : message,
+                ),
+            );
+
+            setEditingMessage(null);
+            setMessageInput("");
+
+            try {
+                const updatedChats = await getChats(token);
+                setChats(getVisibleChats(updatedChats));
+            } catch (syncError) {
+                console.error(
+                    "Could not synchronize chats after editing:",
+                    syncError,
+                );
+            }
+        } catch (caughtError) {
+            if (caughtError instanceof Error) {
+                setError(caughtError.message);
+            }
+        } finally {
+            setMessageActionLoading(null);
+        }
+    }
+
+
+    async function confirmDeleteMessage() {
+        if (!token || !activeChat || !deleteTarget) {
+            return;
+        }
+
+        const message = deleteTarget;
+
+        setMessageActionLoading(message.id);
+        setError("");
+
+        try {
+            const deletedMessage = await deleteMessage(
+                token,
+                activeChat.id,
+                message.id,
+            );
+
+            setMessages((currentMessages) =>
+                currentMessages.map((currentMessage) =>
+                    currentMessage.id === deletedMessage.id
+                        ? deletedMessage
+                        : currentMessage,
+                ),
+            );
+
+            if (replyingTo?.id === message.id) {
+                setReplyingTo(null);
+            }
+
+            if (editingMessage?.id === message.id) {
+                cancelEditing();
+            }
+
+            setDeleteTarget(null);
+
+            try {
+                const updatedChats = await getChats(token);
+                setChats(getVisibleChats(updatedChats));
+            } catch (syncError) {
+                console.error(
+                    "Could not synchronize chats after deleting:",
+                    syncError,
+                );
+            }
+        } catch (caughtError) {
+            if (caughtError instanceof Error) {
+                setError(caughtError.message);
+            }
+        } finally {
+            setMessageActionLoading(null);
+        }
     }
 
 
@@ -1128,6 +1411,11 @@ function App() {
         event: FormEvent<HTMLFormElement>,
     ) {
         event.preventDefault();
+
+        if (editingMessage) {
+            await submitEditedMessage();
+            return;
+        }
 
         if (!token || (!activeChat && !draftPeer)) {
             return;
@@ -1472,6 +1760,9 @@ function App() {
         }
 
         setReplyingTo(null);
+        setEditingMessage(null);
+        setContextMenu(null);
+        setDeleteTarget(null);
         clearSelectedImage();
         setMessageInput("");
         setToken(null);
@@ -1492,6 +1783,9 @@ function App() {
     function closeChat() {
         stopTyping();
         setReplyingTo(null);
+        setEditingMessage(null);
+        setContextMenu(null);
+        setDeleteTarget(null);
         clearSelectedImage();
         setMessageInput("");
         setActiveChat(null);
@@ -2096,6 +2390,10 @@ function App() {
                                         message.image_url,
                                     );
 
+                                    if (message.deleted_at !== null) {
+                                        return null;
+                                    }
+
                                     const peerLastReadAt =
                                         activeChat?.peer_last_read_at ?? null;
 
@@ -2133,18 +2431,15 @@ function App() {
                                                 </div>
                                             )}
 
-                                            <div className={`message-row ${isOwnMessage ? "own" : ""}`}>
-                                                <button
-                                                    className="reply-message-button"
-                                                    type="button"
-                                                    onClick={() =>
-                                                        startReply(message)
-                                                    }
-                                                    title="Reply"
-                                                    aria-label="Reply to message"
-                                                >
-                                                    ↩
-                                                </button>
+                                            <div
+                                                className={`message-row ${isOwnMessage ? "own" : ""}`}
+                                                onContextMenu={(event) =>
+                                                    openMessageContextMenu(
+                                                        event,
+                                                        message,
+                                                    )
+                                                }
+                                            >
                                                 <div className="message-bubble">
                                                     {message.reply_to_message && (
                                                         <div className="message-reply">
@@ -2153,8 +2448,8 @@ function App() {
                                                                 user.id
                                                                     ? "You"
                                                                     : getUserDisplayName(
-                                                                        currentPeer,
-                                                                    )}
+                                                                          currentPeer,
+                                                                      )}
                                                             </strong>
 
                                                             <span>
@@ -2165,6 +2460,7 @@ function App() {
                                                             </span>
                                                         </div>
                                                     )}
+
                                                     {imageUrl && (
                                                         <img
                                                             className="message-image"
@@ -2181,6 +2477,12 @@ function App() {
                                                     )}
 
                                                     <div className="message-meta">
+                                                        {message.edited_at && (
+                                                            <span className="message-edited">
+                                                                edited
+                                                            </span>
+                                                        )}
+
                                                         <span className="message-time">
                                                             {formatTime(
                                                                 message.created_at,
@@ -2206,6 +2508,23 @@ function App() {
                         </div>
 
                         <div className="message-composer">
+                            {editingMessage && (
+                                <div className="editing-preview">
+                                    <div className="editing-preview-content">
+                                        <strong>Editing message</strong>
+                                        <span>{editingMessage.content}</span>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={cancelEditing}
+                                        aria-label="Cancel editing"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            )}
+
                             {replyingTo && (
                                 <div className="replying-preview">
                                     <div className="replying-preview-content">
@@ -2264,30 +2583,34 @@ function App() {
                                 className="message-form"
                                 onSubmit={handleSendMessage}
                             >
-                                <label
-                                    className="attachment-button"
-                                    title="Attach photo"
-                                >
-                                    📎
-                                    <input
-                                        ref={imageInputRef}
-                                        type="file"
-                                        accept="image/jpeg,image/png,image/webp"
-                                        onChange={handleImageSelect}
-                                        disabled={sending}
-                                        hidden
-                                    />
-                                </label>
+                                {!editingMessage && (
+                                    <label
+                                        className="attachment-button"
+                                        title="Attach photo"
+                                    >
+                                        📎
+                                        <input
+                                            ref={imageInputRef}
+                                            type="file"
+                                            accept="image/jpeg,image/png,image/webp"
+                                            onChange={handleImageSelect}
+                                            disabled={sending}
+                                            hidden
+                                        />
+                                    </label>
+                                )}
 
                                 <input
                                     ref={messageInputRef}
                                     type="text"
                                     placeholder={
-                                        selectedImage
-                                            ? "Add a caption..."
-                                            : replyingTo
-                                              ? "Write a reply..."
-                                              : "Write a message..."
+                                        editingMessage
+                                            ? "Edit message..."
+                                            : selectedImage
+                                              ? "Add a caption..."
+                                              : replyingTo
+                                                ? "Write a reply..."
+                                                : "Write a message..."
                                     }
                                     value={messageInput}
                                     onChange={handleMessageInputChange}
@@ -2298,14 +2621,121 @@ function App() {
                                 <button
                                     type="submit"
                                     disabled={
-                                        sending ||
-                                        (!messageInput.trim() && !selectedImage)
+                                        editingMessage
+                                            ? messageActionLoading === editingMessage.id ||
+                                              !messageInput.trim()
+                                            : sending ||
+                                              (!messageInput.trim() && !selectedImage)
                                     }
                                 >
                                     ➤
                                 </button>
                             </form>
                         </div>
+
+                        {contextMenu && (
+                            <div
+                                className="message-context-menu"
+                                style={{
+                                    left: contextMenu.x,
+                                    top: contextMenu.y,
+                                }}
+                                onClick={(event) => event.stopPropagation()}
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => startReply(contextMenu.message)}
+                                >
+                                    <span className="message-context-icon">↩</span>
+                                    <span>Reply</span>
+                                </button>
+
+                                {contextMenu.message.sender_id === user.id &&
+                                    contextMenu.message.content && (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                startEditing(contextMenu.message)
+                                            }
+                                        >
+                                            <span className="message-context-icon">✎</span>
+                                            <span>Edit</span>
+                                        </button>
+                                    )}
+
+                                {contextMenu.message.sender_id === user.id && (
+                                    <button
+                                        className="danger"
+                                        type="button"
+                                        onClick={() =>
+                                            requestDeleteMessage(
+                                                contextMenu.message,
+                                            )
+                                        }
+                                    >
+                                        <span className="message-context-icon">×</span>
+                                        <span>Delete</span>
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        {deleteTarget && (
+                            <div
+                                className="message-delete-backdrop"
+                                onMouseDown={() => {
+                                    if (
+                                        messageActionLoading !==
+                                        deleteTarget.id
+                                    ) {
+                                        setDeleteTarget(null);
+                                    }
+                                }}
+                            >
+                                <div
+                                    className="message-delete-modal"
+                                    onMouseDown={(event) =>
+                                        event.stopPropagation()
+                                    }
+                                >
+                                    <h3>Delete message?</h3>
+                                    <p>
+                                        This message will be deleted for
+                                        everyone.
+                                    </p>
+
+                                    <div className="message-delete-actions">
+                                        <button
+                                            type="button"
+                                            onClick={() => setDeleteTarget(null)}
+                                            disabled={
+                                                messageActionLoading ===
+                                                deleteTarget.id
+                                            }
+                                        >
+                                            Cancel
+                                        </button>
+
+                                        <button
+                                            className="danger"
+                                            type="button"
+                                            onClick={() =>
+                                                void confirmDeleteMessage()
+                                            }
+                                            disabled={
+                                                messageActionLoading ===
+                                                deleteTarget.id
+                                            }
+                                        >
+                                            {messageActionLoading ===
+                                            deleteTarget.id
+                                                ? "Deleting..."
+                                                : "Delete"}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </>
                 ) : (
                     <div className="no-chat-selected">
