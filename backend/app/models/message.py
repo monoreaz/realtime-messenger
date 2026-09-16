@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import (
     DateTime,
     ForeignKey,
+    String,
     Text,
     Uuid,
     func,
@@ -57,6 +58,11 @@ class Message(Base):
     content: Mapped[str] = mapped_column(
         Text,
         nullable=False,
+    )
+
+    image_url: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

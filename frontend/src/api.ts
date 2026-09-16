@@ -18,6 +18,7 @@ export interface LastMessage {
     id: string;
     sender_id: string;
     content: string;
+    image_url: string | null;
     created_at: string;
 }
 
@@ -37,6 +38,7 @@ export interface ReplyMessage {
     id: string;
     sender_id: string;
     content: string;
+    image_url: string | null;
 }
 
 
@@ -45,6 +47,7 @@ export interface Message {
     chat_id: string;
     sender_id: string;
     content: string;
+    image_url: string | null;
     created_at: string;
     reply_to_message_id: string | null;
     reply_to_message: ReplyMessage | null;
@@ -650,6 +653,48 @@ export async function sendMessage(
     return response.json();
 }
 
+export async function sendImageMessage(
+    token: string,
+    chatId: string,
+    file: File,
+    caption = "",
+    replyToMessageId: string | null = null,
+): Promise<Message> {
+    const formData = new FormData();
+
+    formData.append("file", file);
+    formData.append("caption", caption);
+
+    if (replyToMessageId) {
+        formData.append(
+            "reply_to_message_id",
+            replyToMessageId,
+        );
+    }
+
+    const response = await fetch(
+        `${API_BASE_URL}/chats/${chatId}/messages/image`,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not send image",
+            ),
+        );
+    }
+
+    return response.json();
+}
+
 
 export function createWebSocket(): WebSocket {
     const protocol =
@@ -693,3 +738,92 @@ export async function markChatRead(
         );
     }
 }
+
+
+export interface SessionInfo {
+    id: string;
+    user_agent: string | null;
+    remember_me: boolean;
+    created_at: string;
+    last_used_at: string | null;
+    expires_at: string;
+    current: boolean;
+}
+
+export async function getSessions(
+    token: string,
+): Promise<SessionInfo[]> {
+    const response = await fetch(
+        `${API_BASE_URL}/auth/sessions`,
+        {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not load sessions",
+            ),
+        );
+    }
+
+    return response.json();
+}
+
+
+export async function revokeSession(
+    token: string,
+    sessionId: string,
+): Promise<void> {
+    const response = await fetch(
+        `${API_BASE_URL}/auth/sessions/${sessionId}`,
+        {
+            method: "DELETE",
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not log out session",
+            ),
+        );
+    }
+}
+
+
+export async function logoutOtherSessions(
+    token: string,
+): Promise<void> {
+    const response = await fetch(
+        `${API_BASE_URL}/auth/sessions/logout-others`,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not log out other sessions",
+            ),
+        );
+    }
+}
+
+

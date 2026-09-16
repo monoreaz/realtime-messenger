@@ -18,6 +18,7 @@ import {
     resetPassword,
     removeAvatar,
     searchUsers,
+    sendImageMessage,
     sendMessage,
     updateProfile,
     uploadAvatar,
@@ -185,10 +186,13 @@ function App() {
     const [searchResults, setSearchResults] = useState<User[]>([]);
 
     const [messageInput, setMessageInput] = useState("");
+    const [selectedImage, setSelectedImage] = useState<File | null>(null);
+    const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null);
 
     const [replyingTo, setReplyingTo] = useState<Message | null>(null);
 
     const messageInputRef = useRef<HTMLInputElement | null>(null);
+    const imageInputRef = useRef<HTMLInputElement | null>(null);
 
     const [authLoading, setAuthLoading] = useState(false);
     const [appLoading, setAppLoading] = useState(true);
@@ -355,6 +359,15 @@ function App() {
             behavior: "smooth",
         });
     }, [messages]);
+
+
+    useEffect(() => {
+        return () => {
+            if (selectedImagePreview) {
+                URL.revokeObjectURL(selectedImagePreview);
+            }
+        };
+    }, [selectedImagePreview]);
 
 
     useEffect(() => {
@@ -692,6 +705,7 @@ function App() {
                                 id: incomingMessage.id,
                                 sender_id: incomingMessage.sender_id,
                                 content: incomingMessage.content,
+                                image_url: incomingMessage.image_url,
                                 created_at: incomingMessage.created_at,
                             },
                             unread_count: shouldIncreaseUnread
@@ -864,6 +878,8 @@ function App() {
 
         stopTyping();
         setReplyingTo(null);
+        clearSelectedImage();
+        setMessageInput("");
         setActiveChat(chat);
         setTypingUserIds(new Set());
 
@@ -992,6 +1008,49 @@ function App() {
     }
 
 
+    function clearSelectedImage() {
+        setSelectedImage(null);
+        setSelectedImagePreview(null);
+
+        if (imageInputRef.current) {
+            imageInputRef.current.value = "";
+        }
+    }
+
+
+    function handleImageSelect(
+        event: ChangeEvent<HTMLInputElement>,
+    ) {
+        const file = event.target.files?.[0];
+
+        event.target.value = "";
+
+        if (!file) {
+            return;
+        }
+
+        const allowedTypes = new Set([
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+        ]);
+
+        if (!allowedTypes.has(file.type)) {
+            setError("Image must be JPEG, PNG, or WebP");
+            return;
+        }
+
+        if (file.size > 10 * 1024 * 1024) {
+            setError("Image must be smaller than 10 MB");
+            return;
+        }
+
+        setError("");
+        setSelectedImage(file);
+        setSelectedImagePreview(URL.createObjectURL(file));
+    }
+
+
     async function handleSendMessage(
         event: FormEvent<HTMLFormElement>,
     ) {
@@ -1003,7 +1062,7 @@ function App() {
 
         const content = messageInput.trim();
 
-        if (!content) {
+        if (!content && !selectedImage) {
             return;
         }
 
@@ -1012,12 +1071,20 @@ function App() {
         setError("");
 
         try {
-            const newMessage = await sendMessage(
-                token,
-                activeChat.id,
-                content,
-                replyingTo?.id ?? null,
-            );
+            const newMessage = selectedImage
+                ? await sendImageMessage(
+                      token,
+                      activeChat.id,
+                      selectedImage,
+                      content,
+                      replyingTo?.id ?? null,
+                  )
+                : await sendMessage(
+                      token,
+                      activeChat.id,
+                      content,
+                      replyingTo?.id ?? null,
+                  );
 
             setMessages((currentMessages) => {
                 const alreadyExists = currentMessages.some(
@@ -1035,6 +1102,7 @@ function App() {
             });
 
             setMessageInput("");
+            clearSelectedImage();
             setReplyingTo(null);
         } catch (caughtError) {
             if (caughtError instanceof Error) {
@@ -1301,6 +1369,8 @@ function App() {
         }
 
         setReplyingTo(null);
+        clearSelectedImage();
+        setMessageInput("");
         setToken(null);
         setUser(null);
         setChats([]);
@@ -1318,6 +1388,8 @@ function App() {
     function closeChat() {
         stopTyping();
         setReplyingTo(null);
+        clearSelectedImage();
+        setMessageInput("");
         setActiveChat(null);
         setMessages([]);
         setTypingUserIds(new Set());
@@ -1828,7 +1900,12 @@ function App() {
                                                       chat.last_message.sender_id === user.id
                                                           ? "You: "
                                                           : ""
-                                                  }${chat.last_message.content}`
+                                                  }${
+                                                      chat.last_message.content ||
+                                                      (chat.last_message.image_url
+                                                          ? "Photo"
+                                                          : "Message")
+                                                  }`
                                                 : "No messages yet"}
                                         </span>
 
@@ -1907,6 +1984,10 @@ function App() {
                                     const isOwnMessage =
                                         message.sender_id === user.id;
 
+                                    const imageUrl = getMediaUrl(
+                                        message.image_url,
+                                    );
+
                                     const isRead =
                                         isOwnMessage &&
                                         activeChat.peer_last_read_at !== null &&
@@ -1966,16 +2047,27 @@ function App() {
                                                             </strong>
 
                                                             <span>
-                                                                {
-                                                                    message.reply_to_message
-                                                                        .content
-                                                                }
+                                                                {message.reply_to_message.content ||
+                                                                    (message.reply_to_message.image_url
+                                                                        ? "Photo"
+                                                                        : "Message")}
                                                             </span>
                                                         </div>
                                                     )}
-                                                    <div className="message-content">
-                                                        {message.content}
-                                                    </div>
+                                                    {imageUrl && (
+                                                        <img
+                                                            className="message-image"
+                                                            src={imageUrl}
+                                                            alt="Sent attachment"
+                                                            loading="lazy"
+                                                        />
+                                                    )}
+
+                                                    {message.content && (
+                                                        <div className="message-content">
+                                                            {message.content}
+                                                        </div>
+                                                    )}
 
                                                     <div className="message-meta">
                                                         <span className="message-time">
@@ -2003,67 +2095,106 @@ function App() {
                         </div>
 
                         <div className="message-composer">
-    {replyingTo && (
-        <div className="replying-preview">
-            <div className="replying-preview-content">
-                <strong>
-                    Replying to{" "}
-                    {replyingTo.sender_id ===
-                    user.id
-                        ? "yourself"
-                        : getUserDisplayName(
-                              activeChat.peer,
-                          )}
-                </strong>
+                            {replyingTo && (
+                                <div className="replying-preview">
+                                    <div className="replying-preview-content">
+                                        <strong>
+                                            Replying to{" "}
+                                            {replyingTo.sender_id === user.id
+                                                ? "yourself"
+                                                : getUserDisplayName(
+                                                      activeChat.peer,
+                                                  )}
+                                        </strong>
 
-                <span>
-                    {replyingTo.content}
-                </span>
-            </div>
+                                        <span>
+                                            {replyingTo.content ||
+                                                (replyingTo.image_url
+                                                    ? "Photo"
+                                                    : "Message")}
+                                        </span>
+                                    </div>
 
-            <button
-                type="button"
-                onClick={() =>
-                    setReplyingTo(null)
-                }
-                aria-label="Cancel reply"
-            >
-                ×
-            </button>
-        </div>
-    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setReplyingTo(null)}
+                                        aria-label="Cancel reply"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            )}
 
-    <form
-        className="message-form"
-        onSubmit={handleSendMessage}
-    >
-        <input
-            ref={messageInputRef}
-            type="text"
-            placeholder={
-                replyingTo
-                    ? "Write a reply..."
-                    : "Write a message..."
-            }
-            value={messageInput}
-            onChange={
-                handleMessageInputChange
-            }
-            maxLength={4000}
-            autoComplete="off"
-        />
+                            {selectedImage && selectedImagePreview && (
+                                <div className="selected-image-preview">
+                                    <img
+                                        src={selectedImagePreview}
+                                        alt="Selected"
+                                    />
 
-        <button
-            type="submit"
-            disabled={
-                sending ||
-                !messageInput.trim()
-            }
-        >
-            ➤
-        </button>
-    </form>
-</div>
+                                    <div className="selected-image-info">
+                                        <strong>{selectedImage.name}</strong>
+                                        <span>
+                                            {(selectedImage.size / 1024 / 1024).toFixed(1)} MB
+                                        </span>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={clearSelectedImage}
+                                        aria-label="Remove selected image"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            )}
+
+                            <form
+                                className="message-form"
+                                onSubmit={handleSendMessage}
+                            >
+                                <label
+                                    className="attachment-button"
+                                    title="Attach photo"
+                                >
+                                    📎
+                                    <input
+                                        ref={imageInputRef}
+                                        type="file"
+                                        accept="image/jpeg,image/png,image/webp"
+                                        onChange={handleImageSelect}
+                                        disabled={sending}
+                                        hidden
+                                    />
+                                </label>
+
+                                <input
+                                    ref={messageInputRef}
+                                    type="text"
+                                    placeholder={
+                                        selectedImage
+                                            ? "Add a caption..."
+                                            : replyingTo
+                                              ? "Write a reply..."
+                                              : "Write a message..."
+                                    }
+                                    value={messageInput}
+                                    onChange={handleMessageInputChange}
+                                    maxLength={4000}
+                                    autoComplete="off"
+                                />
+
+                                <button
+                                    type="submit"
+                                    disabled={
+                                        sending ||
+                                        (!messageInput.trim() && !selectedImage)
+                                    }
+                                >
+                                    ➤
+                                </button>
+                            </form>
+                        </div>
                     </>
                 ) : (
                     <div className="no-chat-selected">
