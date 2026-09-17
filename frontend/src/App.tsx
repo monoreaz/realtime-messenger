@@ -198,6 +198,8 @@ function App() {
     const [selectedImage, setSelectedImage] = useState<File | null>(null);
     const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null);
 
+    const [imageViewerUrl, setImageViewerUrl] = useState<string | null>(null);
+
     const [replyingTo, setReplyingTo] = useState<Message | null>(null);
     const [editingMessage, setEditingMessage] = useState<Message | null>(null);
     const [messageActionLoading, setMessageActionLoading] = useState<string | null>(null);
@@ -419,6 +421,36 @@ function App() {
         };
     }, [contextMenu]);
 
+    useEffect(() => {
+    if (!imageViewerUrl) {
+        return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+        if (event.key === "Escape") {
+            setImageViewerUrl(null);
+        }
+    }
+
+    const previousOverflow =
+        document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener(
+        "keydown",
+        handleKeyDown,
+    );
+
+    return () => {
+        document.body.style.overflow =
+            previousOverflow;
+
+        window.removeEventListener(
+            "keydown",
+            handleKeyDown,
+        );
+    };
+}, [imageViewerUrl]);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -2462,12 +2494,22 @@ function App() {
                                                     )}
 
                                                     {imageUrl && (
-                                                        <img
-                                                            className="message-image"
-                                                            src={imageUrl}
-                                                            alt="Sent attachment"
-                                                            loading="lazy"
-                                                        />
+                                                        <button
+                                                            className="message-image-button"
+                                                            type="button"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                setImageViewerUrl(imageUrl);
+                                                            }}
+                                                            aria-label="Open image"
+                                                        >
+                                                            <img
+                                                                className="message-image"
+                                                                src={imageUrl}
+                                                                alt="Sent attachment"
+                                                                loading="lazy"
+                                                            />
+                                                        </button>
                                                     )}
 
                                                     {message.content && (
@@ -3015,6 +3057,34 @@ function App() {
                             </div>
                         </div>
                     </section>
+                </div>
+            )}
+
+            {imageViewerUrl && (
+                <div
+                    className="image-viewer"
+                    onClick={() =>
+                        setImageViewerUrl(null)
+                    }
+                >
+                    <button
+                        className="image-viewer-close"
+                        type="button"
+                        onClick={() =>
+                            setImageViewerUrl(null)
+                        }
+                        aria-label="Close image"
+                    >
+                        ×
+                    </button>
+
+                    <img
+                        src={imageViewerUrl}
+                        alt="Full size attachment"
+                        onClick={(event) =>
+                            event.stopPropagation()
+                        }
+                    />
                 </div>
             )}
         </main>

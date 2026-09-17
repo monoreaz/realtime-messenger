@@ -2344,3 +2344,67 @@ button {
         border-radius: 14px;
     }
 }
+
+.message-image-button {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.image-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    background: rgba(0, 0, 0, 0.9);
+    backdrop-filter: blur(6px);
+}
+
+.image-viewer img {
+    display: block;
+    max-width: 95vw;
+    max-height: 92vh;
+    object-fit: contain;
+    border-radius: 8px;
+    user-select: none;
+}
+
+.image-viewer-close {
+    position: absolute;
+    top: 20px;
+    right: 24px;
+    width: 42px;
+    height: 42px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    color: white;
+    font-size: 30px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.image-viewer-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+@media (max-width: 768px) {
+    .image-viewer {
+        padding: 16px;
+    }
+
+    .image-viewer img {
+        max-width: 100%;
+        max-height: 90vh;
+    }
+
+    .image-viewer-close {
+        top: 12px;
+        right: 12px;
+    }
+}
