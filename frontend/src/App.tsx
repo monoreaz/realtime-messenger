@@ -396,30 +396,66 @@ function App() {
 
 
     useEffect(() => {
-        if (!contextMenu) {
+    if (!contextMenu) {
+        return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+        const target = event.target as HTMLElement | null;
+
+        if (
+            target?.closest(
+                ".message-context-menu",
+            )
+        ) {
             return;
         }
 
-        function closeContextMenu() {
+        setContextMenu(null);
+    }
+
+    function closeContextMenu() {
+        setContextMenu(null);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+        if (event.key === "Escape") {
             setContextMenu(null);
         }
+    }
 
-        function handleKeyDown(event: KeyboardEvent) {
-            if (event.key === "Escape") {
-                setContextMenu(null);
-            }
-        }
+    window.addEventListener(
+        "pointerdown",
+        handlePointerDown,
+    );
 
-        window.addEventListener("click", closeContextMenu);
-        window.addEventListener("resize", closeContextMenu);
-        window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener(
+        "resize",
+        closeContextMenu,
+    );
 
-        return () => {
-            window.removeEventListener("click", closeContextMenu);
-            window.removeEventListener("resize", closeContextMenu);
-            window.removeEventListener("keydown", handleKeyDown);
-        };
-    }, [contextMenu]);
+    window.addEventListener(
+        "keydown",
+        handleKeyDown,
+    );
+
+    return () => {
+        window.removeEventListener(
+            "pointerdown",
+            handlePointerDown,
+        );
+
+        window.removeEventListener(
+            "resize",
+            closeContextMenu,
+        );
+
+        window.removeEventListener(
+            "keydown",
+            handleKeyDown,
+        );
+    };
+}, [contextMenu]);
 
     useEffect(() => {
     if (!imageViewerUrl) {
