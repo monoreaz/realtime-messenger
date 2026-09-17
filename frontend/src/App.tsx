@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent, MouseEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
+import type { ChangeEvent, ClipboardEvent as ReactClipboardEvent, FormEvent, MouseEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 
 import {
     createPrivateChat,
@@ -1687,17 +1687,7 @@ function App() {
     }
 
 
-    function handleImageSelect(
-        event: ChangeEvent<HTMLInputElement>,
-    ) {
-        const file = event.target.files?.[0];
-
-        event.target.value = "";
-
-        if (!file) {
-            return;
-        }
-
+    function selectImage(file: File) {
         const allowedTypes = new Set([
             "image/jpeg",
             "image/png",
@@ -1717,6 +1707,46 @@ function App() {
         setError("");
         setSelectedImage(file);
         setSelectedImagePreview(URL.createObjectURL(file));
+    }
+
+
+    function handleImageSelect(
+        event: ChangeEvent<HTMLInputElement>,
+    ) {
+        const file = event.target.files?.[0];
+
+        event.target.value = "";
+
+        if (file) {
+            selectImage(file);
+        }
+    }
+
+
+    function handleImagePaste(
+        event: ReactClipboardEvent<HTMLFormElement>,
+    ) {
+        const imageItem = Array.from(event.clipboardData.items).find(
+            (item) =>
+                item.kind === "file" &&
+                item.type.startsWith("image/"),
+        );
+
+        if (!imageItem) {
+            return;
+        }
+
+        event.preventDefault();
+
+        if (editingMessage || sending) {
+            return;
+        }
+
+        const file = imageItem.getAsFile();
+
+        if (file) {
+            selectImage(file);
+        }
     }
 
 
@@ -2905,6 +2935,7 @@ function App() {
                             <form
                                 className="message-form"
                                 onSubmit={handleSendMessage}
+                                onPaste={handleImagePaste}
                             >
                                 {!editingMessage && (
                                     <label
