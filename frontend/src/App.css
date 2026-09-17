@@ -2509,3 +2509,212 @@ button {
     transform: translateX(-50%);
     pointer-events: none;
 }
+
+/* .message-video {
+    display: block;
+    width: min(460px, 100%);
+    max-height: 420px;
+    border-radius: 14px;
+    background: #000;
+    object-fit: contain;
+    overflow: hidden;
+}
+
+.message-bubble:has(.message-video) {
+    max-width: min(520px, 78%);
+}
+
+.selected-video-preview {
+    align-items: center;
+}
+
+.selected-video-thumbnail {
+    position: relative;
+    width: 96px;
+    height: 72px;
+    flex: 0 0 96px;
+    overflow: hidden;
+    border-radius: 10px;
+    background: #000;
+}
+
+.selected-video-thumbnail video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.selected-video-thumbnail span {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding-left: 2px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    font-size: 13px;
+    pointer-events: none;
+}
+
+.selected-video-preview .selected-image-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.selected-video-preview .selected-image-info strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+    .message-video {
+        width: min(100%, 340px);
+        max-height: 320px;
+    }
+
+    .message-bubble:has(.message-video) {
+        max-width: 88%;
+    }
+} */
+
+
+/* Media messages: no colored bubble around photo/video */
+.message-bubble.media-message {
+    padding: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    max-width: min(520px, 78vw);
+    overflow: visible;
+}
+
+.message-media {
+    position: relative;
+    display: block;
+    width: fit-content;
+    max-width: min(460px, 72vw);
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 16px;
+    box-sizing: border-box;
+    background: #000;
+    line-height: 0;
+}
+
+.message-image-button {
+    display: block;
+    padding: 0 !important;
+    margin: 0;
+    border: 0 !important;
+    background: transparent !important;
+    line-height: 0;
+    cursor: pointer;
+}
+
+.message-media .message-image {
+    display: block;
+    width: auto;
+    max-width: min(460px, 72vw);
+    max-height: 520px;
+    border-radius: 0 !important;
+    object-fit: contain;
+}
+
+.message-media .message-video {
+    display: block;
+    width: min(460px, 72vw);
+    max-width: 100%;
+    max-height: 520px;
+    margin: 0;
+    border-radius: 0 !important;
+    background: #000;
+    object-fit: contain;
+}
+
+/* Inline videos are clean previews. One click opens fullscreen. */
+.message-media.video {
+    cursor: pointer;
+}
+
+.message-media.video .message-video {
+    cursor: pointer;
+}
+
+.message-media.video:hover,
+.message-media.video:hover .message-video {
+    filter: none !important;
+    transform: none !important;
+}
+
+/* Prevent browser player chrome from appearing in the inline preview. */
+.message-media .message-video::-webkit-media-controls {
+    display: none !important;
+}
+
+.message-media-meta {
+    position: absolute;
+    right: 7px;
+    bottom: 7px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+
+.message-media-meta .message-receipt {
+    color: rgba(255, 255, 255, 0.82);
+}
+
+.message-media-meta .message-receipt.read {
+    color: #8fd3ff;
+}
+
+/* Caption is separate from the media itself. */
+.message-bubble.media-message > .message-content {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    line-height: 1.4;
+}
+
+.message-bubble.media-message > .message-reply {
+    margin-bottom: 6px;
+}
+
+@media (max-width: 700px) {
+    .message-bubble.media-message {
+        max-width: 88vw;
+    }
+
+    .message-media,
+    .message-media .message-image,
+    .message-media .message-video {
+        max-width: 78vw;
+    }
+
+    .message-media .message-video {
+        width: 78vw;
+        max-height: 420px;
+    }
+}

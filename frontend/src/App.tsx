@@ -29,6 +29,7 @@ import {
     revokeSession,
     editMessage,
     deleteMessage,
+    sendVideoMessage,
     type SessionInfo,
     type Chat,
     type Message,
@@ -198,6 +199,9 @@ function App() {
     const [selectedImage, setSelectedImage] = useState<File | null>(null);
     const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null);
 
+    const [selectedVideo, setSelectedVideo] = useState<File | null>(null);
+    const [selectedVideoPreview, setSelectedVideoPreview] = useState<string | null>(null);
+
     const [imageViewerUrl, setImageViewerUrl] = useState<string | null>(null);
 
     const [imageViewerScale, setImageViewerScale] = useState(1);
@@ -231,6 +235,7 @@ function App() {
 
     const messageInputRef = useRef<HTMLInputElement | null>(null);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
+
 
     const [authLoading, setAuthLoading] = useState(false);
     const [appLoading, setAppLoading] = useState(true);
@@ -415,6 +420,15 @@ function App() {
 
 
     useEffect(() => {
+        return () => {
+            if (selectedVideoPreview) {
+                URL.revokeObjectURL(selectedVideoPreview);
+            }
+        };
+    }, [selectedVideoPreview]);
+
+
+    useEffect(() => {
     if (!contextMenu) {
         return;
     }
@@ -489,6 +503,55 @@ function App() {
     function openImageViewer(url: string) {
         setImageViewerUrl(url);
         resetImageViewerTransform();
+    }
+
+
+    async function openVideoFullscreen(video: HTMLVideoElement) {
+        const webkitVideo = video as HTMLVideoElement & {
+            webkitEnterFullscreen?: () => void;
+        };
+
+        const hideInlineControls = () => {
+            video.controls = false;
+        };
+
+        video.controls = true;
+
+        try {
+            if (video.requestFullscreen) {
+                await video.requestFullscreen();
+
+                const handleFullscreenChange = () => {
+                    if (document.fullscreenElement !== video) {
+                        hideInlineControls();
+                        document.removeEventListener(
+                            "fullscreenchange",
+                            handleFullscreenChange,
+                        );
+                    }
+                };
+
+                document.addEventListener(
+                    "fullscreenchange",
+                    handleFullscreenChange,
+                );
+            } else if (webkitVideo.webkitEnterFullscreen) {
+                video.addEventListener(
+                    "webkitendfullscreen",
+                    hideInlineControls,
+                    { once: true },
+                );
+
+                webkitVideo.webkitEnterFullscreen();
+            } else {
+                hideInlineControls();
+                return;
+            }
+
+            void video.play().catch(() => undefined);
+        } catch {
+            hideInlineControls();
+        }
     }
 
 
@@ -1144,6 +1207,7 @@ function App() {
                                 sender_id: incomingMessage.sender_id,
                                 content: incomingMessage.content,
                                 image_url: incomingMessage.image_url,
+                                video_url: incomingMessage.video_url,
                                 created_at: incomingMessage.created_at,
                             },
                             unread_count: shouldIncreaseUnread
@@ -1376,6 +1440,7 @@ function App() {
         setContextMenu(null);
         setDeleteTarget(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setMessageInput("");
         setDraftPeer(null);
         setActiveChat(chat);
@@ -1476,6 +1541,7 @@ function App() {
         setContextMenu(null);
         setDeleteTarget(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setMessageInput("");
         setActiveChat(null);
         setDraftPeer(targetUser);
@@ -1516,6 +1582,7 @@ function App() {
     ) {
         setReplyingTo(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setEditingMessage(message);
         setMessageInput(message.content);
         setContextMenu(null);
@@ -1686,6 +1753,35 @@ function App() {
         }
     }
 
+    function clearSelectedVideo() {
+        setSelectedVideo(null);
+        setSelectedVideoPreview(null);
+    }
+
+
+    function selectVideo(file: File) {
+        const allowedTypes = new Set([
+            "video/mp4",
+            "video/webm",
+        ]);
+
+        if (!allowedTypes.has(file.type)) {
+            setError("Video must be MP4 or WebM");
+            return;
+        }
+
+        if (file.size > 50 * 1024 * 1024) {
+            setError("Video must be smaller than 50 MB");
+            return;
+        }
+
+        clearSelectedImage();
+        setError("");
+        setSelectedVideo(file);
+        setSelectedVideoPreview(
+            URL.createObjectURL(file),
+        );
+    }
 
     function selectImage(file: File) {
         const allowedTypes = new Set([
@@ -1704,22 +1800,36 @@ function App() {
             return;
         }
 
+        clearSelectedVideo();
+
         setError("");
         setSelectedImage(file);
         setSelectedImagePreview(URL.createObjectURL(file));
     }
 
 
-    function handleImageSelect(
+    function handleAttachmentSelect(
         event: ChangeEvent<HTMLInputElement>,
     ) {
         const file = event.target.files?.[0];
 
         event.target.value = "";
 
-        if (file) {
-            selectImage(file);
+        if (!file) {
+            return;
         }
+
+        if (file.type.startsWith("image/")) {
+            selectImage(file);
+            return;
+        }
+
+        if (file.type.startsWith("video/")) {
+            selectVideo(file);
+            return;
+        }
+
+        setError("File must be JPEG, PNG, WebP, MP4, or WebM");
     }
 
 
@@ -1766,7 +1876,7 @@ function App() {
 
         const content = messageInput.trim();
 
-        if (!content && !selectedImage) {
+        if (!content && !selectedImage && !selectedVideo) {
             return;
         }
 
@@ -1797,12 +1907,20 @@ function App() {
                       content,
                       replyingTo?.id ?? null,
                   )
-                : await sendMessage(
-                      token,
-                      targetChat.id,
-                      content,
-                      replyingTo?.id ?? null,
-                  );
+                : selectedVideo
+                  ? await sendVideoMessage(
+                        token,
+                        targetChat.id,
+                        selectedVideo,
+                        content,
+                        replyingTo?.id ?? null,
+                    )
+                  : await sendMessage(
+                        token,
+                        targetChat.id,
+                        content,
+                        replyingTo?.id ?? null,
+                    );
 
             if (wasDraft) {
                 setDraftPeer(null);
@@ -1837,6 +1955,7 @@ function App() {
 
             setMessageInput("");
             clearSelectedImage();
+            clearSelectedVideo();
             setReplyingTo(null);
         } catch (caughtError) {
             if (caughtError instanceof Error) {
@@ -2107,6 +2226,7 @@ function App() {
         setContextMenu(null);
         setDeleteTarget(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setMessageInput("");
         setToken(null);
         setUser(null);
@@ -2130,6 +2250,7 @@ function App() {
         setContextMenu(null);
         setDeleteTarget(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setMessageInput("");
         setActiveChat(null);
         setDraftPeer(null);
@@ -2649,7 +2770,9 @@ function App() {
                                                       chat.last_message.content ||
                                                       (chat.last_message.image_url
                                                           ? "Photo"
-                                                          : "Message")
+                                                          : chat.last_message.video_url
+                                                            ? "Video"
+                                                            : "Message")
                                                   }`
                                                 : "No messages yet"}
                                         </span>
@@ -2733,6 +2856,10 @@ function App() {
                                         message.image_url,
                                     );
 
+                                    const videoUrl = getMediaUrl(
+                                        message.video_url,
+                                    );
+
                                     if (message.deleted_at !== null) {
                                         return null;
                                     }
@@ -2783,7 +2910,13 @@ function App() {
                                                     )
                                                 }
                                             >
-                                                <div className="message-bubble">
+                                                <div
+                                                    className={`message-bubble ${
+                                                        imageUrl || videoUrl
+                                                            ? "media-message"
+                                                            : ""
+                                                    }`}
+                                                >
                                                     {message.reply_to_message && (
                                                         <div className="message-reply">
                                                             <strong>
@@ -2799,28 +2932,77 @@ function App() {
                                                                 {message.reply_to_message.content ||
                                                                     (message.reply_to_message.image_url
                                                                         ? "Photo"
-                                                                        : "Message")}
+                                                                        : message.reply_to_message.video_url
+                                                                          ? "Video"
+                                                                          : "Message")}
                                                             </span>
                                                         </div>
                                                     )}
 
-                                                    {imageUrl && (
-                                                        <button
-                                                            className="message-image-button"
-                                                            type="button"
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                openImageViewer(imageUrl);
-                                                            }}
-                                                            aria-label="Open image"
+                                                    {(imageUrl || videoUrl) && (
+                                                        <div
+                                                            className={`message-media ${
+                                                                videoUrl ? "video" : "image"
+                                                            }`}
                                                         >
-                                                            <img
-                                                                className="message-image"
-                                                                src={imageUrl}
-                                                                alt="Sent attachment"
-                                                                loading="lazy"
-                                                            />
-                                                        </button>
+                                                            {imageUrl && (
+                                                                <button
+                                                                    className="message-image-button"
+                                                                    type="button"
+                                                                    onClick={(event) => {
+                                                                        event.stopPropagation();
+                                                                        openImageViewer(imageUrl);
+                                                                    }}
+                                                                    aria-label="Open image"
+                                                                >
+                                                                    <img
+                                                                        className="message-image"
+                                                                        src={imageUrl}
+                                                                        alt="Sent attachment"
+                                                                        loading="lazy"
+                                                                    />
+                                                                </button>
+                                                            )}
+
+                                                            {videoUrl && (
+                                                                <video
+                                                                    className="message-video"
+                                                                    src={videoUrl}
+                                                                    preload="metadata"
+                                                                    playsInline
+                                                                    onClick={(event) => {
+                                                                        event.stopPropagation();
+                                                                        void openVideoFullscreen(
+                                                                            event.currentTarget,
+                                                                        );
+                                                                    }}
+                                                                    aria-label="Open video fullscreen"
+                                                                />
+                                                            )}
+
+                                                            <div className="message-media-meta">
+                                                                {message.edited_at && (
+                                                                    <span>edited</span>
+                                                                )}
+
+                                                                <span>
+                                                                    {formatTime(
+                                                                        message.created_at,
+                                                                    )}
+                                                                </span>
+
+                                                                {isOwnMessage && (
+                                                                    <span
+                                                                        className={`message-receipt ${
+                                                                            isRead ? "read" : ""
+                                                                        }`}
+                                                                        title={isRead ? "Read" : "Sent"}
+                                                                    >
+                                                                        {isRead ? "✓✓" : "✓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
                                                     )}
 
                                                     {message.content && (
@@ -2829,27 +3011,32 @@ function App() {
                                                         </div>
                                                     )}
 
-                                                    <div className="message-meta">
-                                                        {message.edited_at && (
-                                                            <span className="message-edited">
-                                                                edited
-                                                            </span>
-                                                        )}
-
-                                                        <span className="message-time">
-                                                            {formatTime(
-                                                                message.created_at,
+                                                    {!imageUrl && !videoUrl && (
+                                                        <div className="message-meta">
+                                                            {message.edited_at && (
+                                                                <span className="message-edited">
+                                                                    edited
+                                                                </span>
                                                             )}
-                                                        </span>
 
-                                                        {isOwnMessage && (
-                                                            <span className={`message-receipt ${isRead ? "read" : ""}`} title={isRead ? "Read" : "Sent"}>
-                                                                {isRead
-                                                                    ? "✓✓"
-                                                                    : "✓"}
+                                                            <span className="message-time">
+                                                                {formatTime(
+                                                                    message.created_at,
+                                                                )}
                                                             </span>
-                                                        )}
-                                                    </div>
+
+                                                            {isOwnMessage && (
+                                                                <span
+                                                                    className={`message-receipt ${
+                                                                        isRead ? "read" : ""
+                                                                    }`}
+                                                                    title={isRead ? "Read" : "Sent"}
+                                                                >
+                                                                    {isRead ? "✓✓" : "✓"}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </Fragment>
@@ -2894,7 +3081,9 @@ function App() {
                                             {replyingTo.content ||
                                                 (replyingTo.image_url
                                                     ? "Photo"
-                                                    : "Message")}
+                                                    : replyingTo.video_url
+                                                      ? "Video"
+                                                      : "Message")}
                                         </span>
                                     </div>
 
@@ -2932,6 +3121,35 @@ function App() {
                                 </div>
                             )}
 
+                            {selectedVideo && selectedVideoPreview && (
+                                <div className="selected-image-preview selected-video-preview">
+                                    <div className="selected-video-thumbnail">
+                                        <video
+                                            src={selectedVideoPreview}
+                                            preload="metadata"
+                                            muted
+                                            playsInline
+                                        />
+                                        <span aria-hidden="true">▶</span>
+                                    </div>
+
+                                    <div className="selected-image-info">
+                                        <strong>{selectedVideo.name}</strong>
+                                        <span>
+                                            {(selectedVideo.size / 1024 / 1024).toFixed(1)} MB · Video
+                                        </span>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={clearSelectedVideo}
+                                        aria-label="Remove selected video"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            )}
+
                             <form
                                 className="message-form"
                                 onSubmit={handleSendMessage}
@@ -2940,14 +3158,14 @@ function App() {
                                 {!editingMessage && (
                                     <label
                                         className="attachment-button"
-                                        title="Attach photo"
+                                        title="Attach photo or video"
                                     >
                                         📎
                                         <input
                                             ref={imageInputRef}
                                             type="file"
-                                            accept="image/jpeg,image/png,image/webp"
-                                            onChange={handleImageSelect}
+                                            accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+                                            onChange={handleAttachmentSelect}
                                             disabled={sending}
                                             hidden
                                         />
@@ -2960,7 +3178,7 @@ function App() {
                                     placeholder={
                                         editingMessage
                                             ? "Edit message..."
-                                            : selectedImage
+                                            : selectedImage || selectedVideo
                                               ? "Add a caption..."
                                               : replyingTo
                                                 ? "Write a reply..."
@@ -2979,7 +3197,9 @@ function App() {
                                             ? messageActionLoading === editingMessage.id ||
                                               !messageInput.trim()
                                             : sending ||
-                                              (!messageInput.trim() && !selectedImage)
+                                              (!messageInput.trim() &&
+                                                  !selectedImage &&
+                                                  !selectedVideo)
                                     }
                                 >
                                     ➤
