@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent, MouseEvent } from "react";
+import type { ChangeEvent, FormEvent, MouseEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 
 import {
     createPrivateChat,
@@ -199,6 +199,25 @@ function App() {
     const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null);
 
     const [imageViewerUrl, setImageViewerUrl] = useState<string | null>(null);
+
+    const [imageViewerScale, setImageViewerScale] = useState(1);
+
+    const [imageViewerPosition, setImageViewerPosition] =
+        useState({
+            x: 0,
+            y: 0,
+        });
+
+    const [imageViewerDragging, setImageViewerDragging] =
+        useState(false);
+
+    const imageViewerDragStartRef = useRef({
+        pointerX: 0,
+        pointerY: 0,
+        imageX: 0,
+        imageY: 0,
+    });
+    const imageViewerImageRef = useRef<HTMLImageElement | null>(null);
 
     const [replyingTo, setReplyingTo] = useState<Message | null>(null);
     const [editingMessage, setEditingMessage] = useState<Message | null>(null);
@@ -457,36 +476,262 @@ function App() {
     };
 }, [contextMenu]);
 
-    useEffect(() => {
-    if (!imageViewerUrl) {
-        return;
+    function resetImageViewerTransform() {
+        setImageViewerScale(1);
+        setImageViewerPosition({
+            x: 0,
+            y: 0,
+        });
+        setImageViewerDragging(false);
     }
 
-    function handleKeyDown(event: KeyboardEvent) {
-        if (event.key === "Escape") {
-            setImageViewerUrl(null);
+
+    function openImageViewer(url: string) {
+        setImageViewerUrl(url);
+        resetImageViewerTransform();
+    }
+
+
+    function closeImageViewer() {
+        setImageViewerUrl(null);
+        resetImageViewerTransform();
+    }
+
+
+    function getChatImageUrls(): string[] {
+        return messages
+            .map((message) =>
+                getMediaUrl(message.image_url),
+            )
+            .filter(
+                (url): url is string =>
+                    Boolean(url),
+            );
+    }
+
+
+    function clampImageViewerPosition(
+        x: number,
+        y: number,
+        scale: number,
+    ) {
+        const image = imageViewerImageRef.current;
+        const stage = image?.parentElement;
+
+        if (!image || !stage || scale <= 1) {
+            return { x: 0, y: 0 };
         }
+
+        const maxX = Math.max(
+            0,
+            (image.clientWidth * scale - stage.clientWidth) / 2,
+        );
+        const maxY = Math.max(
+            0,
+            (image.clientHeight * scale - stage.clientHeight) / 2,
+        );
+
+        return {
+            x: Math.max(-maxX, Math.min(maxX, x)),
+            y: Math.max(-maxY, Math.min(maxY, y)),
+        };
     }
 
-    const previousOverflow =
-        document.body.style.overflow;
 
-    document.body.style.overflow = "hidden";
-    window.addEventListener(
-        "keydown",
-        handleKeyDown,
-    );
+    function changeViewerImage(
+        direction: number,
+    ) {
+        if (!imageViewerUrl) {
+            return;
+        }
 
-    return () => {
+        const imageUrls =
+            getChatImageUrls();
+
+        if (imageUrls.length <= 1) {
+            return;
+        }
+
+        const currentIndex =
+            imageUrls.indexOf(
+                imageViewerUrl,
+            );
+
+        if (currentIndex === -1) {
+            return;
+        }
+
+        const nextIndex =
+            (
+                currentIndex +
+                direction +
+                imageUrls.length
+            ) %
+            imageUrls.length;
+
+        setImageViewerUrl(
+            imageUrls[nextIndex],
+        );
+
+        resetImageViewerTransform();
+    }
+
+
+    function handleImageViewerWheel(
+        event: ReactWheelEvent<HTMLDivElement>,
+    ) {
+        event.preventDefault();
+
+        const zoomChange =
+            event.deltaY < 0
+                ? 0.2
+                : -0.2;
+
+        const nextScale = Math.min(
+            5,
+            Math.max(1, imageViewerScale + zoomChange),
+        );
+
+        setImageViewerScale(nextScale);
+        setImageViewerPosition((position) =>
+            clampImageViewerPosition(
+                position.x,
+                position.y,
+                nextScale,
+            ),
+        );
+    }
+
+
+    function handleImageViewerDoubleClick(
+        event: MouseEvent<HTMLImageElement>,
+    ) {
+        event.stopPropagation();
+
+        setImageViewerScale(
+            imageViewerScale > 1 ? 1 : 2,
+        );
+        setImageViewerPosition({ x: 0, y: 0 });
+    }
+
+
+    function handleImagePointerDown(
+        event: ReactPointerEvent<HTMLImageElement>,
+    ) {
+        if (
+            imageViewerScale <= 1 ||
+            event.button !== 0
+        ) {
+            return;
+        }
+
+        event.currentTarget.setPointerCapture(
+            event.pointerId,
+        );
+
+        imageViewerDragStartRef.current = {
+            pointerX: event.clientX,
+            pointerY: event.clientY,
+            imageX:
+                imageViewerPosition.x,
+            imageY:
+                imageViewerPosition.y,
+        };
+
+        setImageViewerDragging(true);
+    }
+
+
+    function handleImagePointerMove(
+        event: ReactPointerEvent<HTMLImageElement>,
+    ) {
+        if (!imageViewerDragging) {
+            return;
+        }
+
+        const start =
+            imageViewerDragStartRef.current;
+
+        setImageViewerPosition(
+            clampImageViewerPosition(
+                start.imageX + event.clientX - start.pointerX,
+                start.imageY + event.clientY - start.pointerY,
+                imageViewerScale,
+            ),
+        );
+    }
+
+
+    function handleImagePointerUp(
+        event: ReactPointerEvent<HTMLImageElement>,
+    ) {
+        if (!imageViewerDragging) {
+            return;
+        }
+
+        if (
+            event.currentTarget.hasPointerCapture(
+                event.pointerId,
+            )
+        ) {
+            event.currentTarget.releasePointerCapture(
+                event.pointerId,
+            );
+        }
+
+        setImageViewerDragging(false);
+    }
+
+
+    useEffect(() => {
+        if (!imageViewerUrl) {
+            return;
+        }
+
+        if (!getChatImageUrls().includes(imageViewerUrl)) {
+            closeImageViewer();
+            return;
+        }
+
+        function handleKeyDown(event: KeyboardEvent) {
+            if (event.key === "Escape") {
+                closeImageViewer();
+                return;
+            }
+
+            if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                changeViewerImage(-1);
+                return;
+            }
+
+            if (event.key === "ArrowRight") {
+                event.preventDefault();
+                changeViewerImage(1);
+            }
+        }
+
+        const previousOverflow =
+            document.body.style.overflow;
+
         document.body.style.overflow =
-            previousOverflow;
+            "hidden";
 
-        window.removeEventListener(
+        window.addEventListener(
             "keydown",
             handleKeyDown,
         );
-    };
-}, [imageViewerUrl]);
+
+        return () => {
+            document.body.style.overflow =
+                previousOverflow;
+
+            window.removeEventListener(
+                "keydown",
+                handleKeyDown,
+            );
+        };
+    }, [imageViewerUrl, messages]);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -2535,7 +2780,7 @@ function App() {
                                                             type="button"
                                                             onClick={(event) => {
                                                                 event.stopPropagation();
-                                                                setImageViewerUrl(imageUrl);
+                                                                openImageViewer(imageUrl);
                                                             }}
                                                             aria-label="Open image"
                                                         >
@@ -3096,33 +3341,127 @@ function App() {
                 </div>
             )}
 
-            {imageViewerUrl && (
-                <div
-                    className="image-viewer"
-                    onClick={() =>
-                        setImageViewerUrl(null)
-                    }
-                >
-                    <button
-                        className="image-viewer-close"
-                        type="button"
-                        onClick={() =>
-                            setImageViewerUrl(null)
-                        }
-                        aria-label="Close image"
-                    >
-                        ×
-                    </button>
+            {imageViewerUrl && (() => {
+                const imageUrls =
+                    getChatImageUrls();
 
-                    <img
-                        src={imageViewerUrl}
-                        alt="Full size attachment"
-                        onClick={(event) =>
-                            event.stopPropagation()
+                const currentImageIndex =
+                    imageUrls.indexOf(
+                        imageViewerUrl,
+                    );
+
+                if (currentImageIndex === -1) {
+                    return null;
+                }
+
+                return (
+                    <div
+                        className="image-viewer"
+                        onClick={
+                            closeImageViewer
                         }
-                    />
-                </div>
-            )}
+                        onWheel={
+                            handleImageViewerWheel
+                        }
+                    >
+                        <button
+                            className="image-viewer-close"
+                            type="button"
+                            onClick={
+                                closeImageViewer
+                            }
+                            aria-label="Close image"
+                        >
+                            ×
+                        </button>
+
+                        {imageUrls.length > 1 && (
+                            <>
+                                <button
+                                    className="image-viewer-navigation previous"
+                                    type="button"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        changeViewerImage(-1);
+                                    }}
+                                    aria-label="Previous image"
+                                >
+                                    ‹
+                                </button>
+
+                                <button
+                                    className="image-viewer-navigation next"
+                                    type="button"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        changeViewerImage(1);
+                                    }}
+                                    aria-label="Next image"
+                                >
+                                    ›
+                                </button>
+                            </>
+                        )}
+
+                        <div
+                            className="image-viewer-stage"
+                            onClick={(event) =>
+                                event.stopPropagation()
+                            }
+                        >
+                            <img
+                                ref={imageViewerImageRef}
+                                src={imageViewerUrl}
+                                alt="Full size attachment"
+                                draggable={false}
+                                className={imageViewerDragging
+                                    ? "dragging"
+                                    : imageViewerScale > 1
+                                      ? "zoomed"
+                                      : ""}
+                                style={{
+                                    transform: `translate(${imageViewerPosition.x}px, ${imageViewerPosition.y}px) scale(${imageViewerScale})`,
+                                }}
+                                onDoubleClick={
+                                    handleImageViewerDoubleClick
+                                }
+                                onPointerDown={
+                                    handleImagePointerDown
+                                }
+                                onPointerMove={
+                                    handleImagePointerMove
+                                }
+                                onPointerUp={
+                                    handleImagePointerUp
+                                }
+                                onPointerCancel={
+                                    handleImagePointerUp
+                                }
+                                onLostPointerCapture={() =>
+                                    setImageViewerDragging(false)
+                                }
+                            />
+                        </div>
+
+                        <div className="image-viewer-info">
+                            {currentImageIndex + 1} /{" "}
+                            {imageUrls.length}
+
+                            {imageViewerScale > 1 && (
+                                <span>
+                                    {" "}
+                                    ·{" "}
+                                    {Math.round(
+                                        imageViewerScale *
+                                            100,
+                                    )}
+                                    %
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
         </main>
     );
 }
