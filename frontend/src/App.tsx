@@ -2980,7 +2980,13 @@ function App() {
                                                                 />
                                                             )}
 
-                                                            <div className="message-media-meta">
+                                                            {message.content && (
+                                                                <div className="message-caption">
+                                                                    {message.content}
+                                                                </div>
+                                                            )}
+
+                                                            <div className={`message-media-meta ${message.content ? "with-caption" : ""}`}>
                                                                 {message.edited_at && (
                                                                     <span>edited</span>
                                                                 )}
@@ -3005,7 +3011,7 @@ function App() {
                                                         </div>
                                                     )}
 
-                                                    {message.content && (
+                                                    {message.content && !imageUrl && !videoUrl && (
                                                         <div className="message-content">
                                                             {message.content}
                                                         </div>
