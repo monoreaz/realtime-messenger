@@ -2783,7 +2783,7 @@ function App() {
                                                     )
                                                 }
                                             >
-                                                <div className="message-bubble">
+                                                <div className={`message-bubble ${imageUrl ? "media-message" : ""}`}>
                                                     {message.reply_to_message && (
                                                         <div className="message-reply">
                                                             <strong>
@@ -2804,26 +2804,31 @@ function App() {
                                                         </div>
                                                     )}
 
-                                                    {imageUrl && (
-                                                        <button
-                                                            className="message-image-button"
-                                                            type="button"
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                openImageViewer(imageUrl);
-                                                            }}
-                                                            aria-label="Open image"
-                                                        >
-                                                            <img
-                                                                className="message-image"
-                                                                src={imageUrl}
-                                                                alt="Sent attachment"
-                                                                loading="lazy"
-                                                            />
-                                                        </button>
-                                                    )}
-
-                                                    {message.content && (
+                                                    {imageUrl ? (
+                                                        <div className="message-media">
+                                                            <button
+                                                                className="message-image-button"
+                                                                type="button"
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    openImageViewer(imageUrl);
+                                                                }}
+                                                                aria-label="Open image"
+                                                            >
+                                                                <img
+                                                                    className="message-image"
+                                                                    src={imageUrl}
+                                                                    alt="Sent attachment"
+                                                                    loading="lazy"
+                                                                />
+                                                            </button>
+                                                            {message.content && (
+                                                                <div className="message-caption">
+                                                                    {message.content}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ) : message.content && (
                                                         <div className="message-content">
                                                             {message.content}
                                                         </div>

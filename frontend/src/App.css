@@ -2509,3 +2509,33 @@ button {
     transform: translateX(-50%);
     pointer-events: none;
 }
+/* Keep image captions together with their image on desktop and mobile. */
+.message-bubble.media-message {
+    width: fit-content;
+    max-width: min(520px, 78vw);
+    padding: 0;
+    overflow: hidden;
+}
+
+.message-media {
+    width: fit-content;
+    max-width: 100%;
+    min-width: min(240px, 72vw);
+}
+
+.message-media .message-image {
+    max-width: min(460px, 72vw);
+    max-height: 520px;
+    border-radius: 0;
+}
+
+.message-caption {
+    padding: 9px 11px 0;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.message-bubble.media-message .message-meta {
+    margin: 2px 8px 7px;
+}
