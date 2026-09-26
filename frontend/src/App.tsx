@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, ClipboardEvent as ReactClipboardEvent, FormEvent, MouseEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 
 import {
@@ -267,7 +267,10 @@ function App() {
 
     const activeChatIdRef = useRef<string | null>(null);
     const draftPeerIdRef = useRef<string | null>(null);
-    const messagesEndRef = useRef<HTMLDivElement | null>(null);
+    const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+    const messagesContentRef = useRef<HTMLDivElement | null>(null);
+    const keepLatestVisibleRef = useRef(true);
+    const scrollToLatestOnOpenRef = useRef(false);
     const websocketRef = useRef<WebSocket | null>(null);
 
     const typingTimeoutRef = useRef< ReturnType<typeof setTimeout> | null >(null);
@@ -398,11 +401,41 @@ function App() {
     }, [draftPeer]);
 
 
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({
-            behavior: "smooth",
+    useLayoutEffect(() => {
+        if (messagesLoading) {
+            return;
+        }
+
+        const container = messagesContainerRef.current;
+        if (!container) {
+            return;
+        }
+
+        keepLatestVisibleRef.current = true;
+        container.scrollTo({
+            top: container.scrollHeight,
+            behavior: scrollToLatestOnOpenRef.current ? "instant" : "smooth",
         });
-    }, [messages]);
+        scrollToLatestOnOpenRef.current = false;
+    }, [messages, messagesLoading]);
+
+    useLayoutEffect(() => {
+        const container = messagesContainerRef.current;
+        const content = messagesContentRef.current;
+        if (!container || !content) {
+            return;
+        }
+
+        // Images and videos can change the history height after it renders.
+        const observer = new ResizeObserver(() => {
+            if (keepLatestVisibleRef.current) {
+                container.scrollTop = container.scrollHeight;
+            }
+        });
+        observer.observe(content);
+        observer.observe(container);
+        return () => observer.disconnect();
+    }, [activeChat?.id, draftPeer?.id, appLoading]);
 
 
     useEffect(() => {
@@ -1382,6 +1415,7 @@ function App() {
             user_id: chat.peer.id,
         });
 
+        scrollToLatestOnOpenRef.current = true;
         setMessagesLoading(true);
         setError("");
 
@@ -2711,7 +2745,17 @@ function App() {
                             </div>
                         </header>
 
-                        <div className="messages">
+                        <div
+                            className="messages"
+                            ref={messagesContainerRef}
+                            onScroll={(event) => {
+                                const container = event.currentTarget;
+                                keepLatestVisibleRef.current =
+                                    container.scrollHeight - container.clientHeight -
+                                    container.scrollTop < 48;
+                            }}
+                        >
+                            <div ref={messagesContentRef}>
                             {messagesLoading ? (
                                 <div className="chat-placeholder">
                                     Loading messages...
@@ -2858,7 +2902,7 @@ function App() {
                                 })
                             )}
 
-                            <div ref={messagesEndRef} />
+                            </div>
                         </div>
 
                         <div className="message-composer">
