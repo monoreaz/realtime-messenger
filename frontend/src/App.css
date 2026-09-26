@@ -2541,3 +2541,108 @@ button {
 .message-bubble.media-message .message-meta {
     margin: 2px 8px 7px;
 }
+
+
+.peer-profile-trigger {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-weight: 700;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
+.peer-profile-trigger:hover {
+    color: #69b5ff;
+}
+
+.peer-profile-trigger:focus-visible,
+.peer-profile-close:focus-visible {
+    outline: 2px solid #69b5ff;
+    outline-offset: 4px;
+    border-radius: 4px;
+}
+
+.peer-profile-dialog {
+    width: min(400px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    padding: 0;
+    border: 1px solid #2b3947;
+    border-radius: 18px;
+    background: #17212b;
+    color: #ffffff;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    overflow-y: auto;
+}
+
+.peer-profile-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.peer-profile-card {
+    position: relative;
+    padding: 36px 28px 28px;
+}
+
+.peer-profile-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #aab8c5;
+    font-size: 26px;
+}
+
+.peer-profile-close:hover {
+    background: #253341;
+    color: #ffffff;
+}
+
+.peer-profile-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 104px;
+    height: 104px;
+    margin: 0 auto 18px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #3390ec;
+    font-size: 40px;
+    font-weight: 700;
+}
+
+.peer-profile-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.peer-profile-card h2 {
+    margin: 0 0 24px;
+    text-align: center;
+    font-size: 24px;
+    overflow-wrap: anywhere;
+}
+
+.peer-profile-details {
+    margin: 0;
+}
+
+.peer-profile-details dt {
+    margin-top: 18px;
+    color: #8e9ba7;
+    font-size: 13px;
+}
+
+.peer-profile-details dd {
+    margin: 6px 0 0;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}

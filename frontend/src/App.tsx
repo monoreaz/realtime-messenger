@@ -93,6 +93,47 @@ function UserAvatar({
     );
 }
 
+function PeerProfileDialog({ user, onClose }: { user: User; onClose: () => void }) {
+    const dialogRef = useRef<HTMLDialogElement | null>(null);
+
+    useEffect(() => {
+        const dialog = dialogRef.current;
+        dialog?.showModal();
+        return () => dialog?.close();
+    }, []);
+
+    return (
+        <dialog
+            ref={dialogRef}
+            className="peer-profile-dialog"
+            aria-labelledby="peer-profile-title"
+            onCancel={onClose}
+            onClick={(event) => {
+                if (event.target === event.currentTarget) onClose();
+            }}
+        >
+            <div className="peer-profile-card">
+                <button
+                    className="peer-profile-close"
+                    type="button"
+                    onClick={onClose}
+                    aria-label="Close profile"
+                    autoFocus
+                >×</button>
+                <UserAvatar user={user} className="peer-profile-avatar" />
+                <h2 id="peer-profile-title">{getUserDisplayName(user)}</h2>
+                <dl className="peer-profile-details">
+                    <dt>Username</dt>
+                    <dd>@{user.username}</dd>
+                    <dt>Bio</dt>
+                    <dd>{user.bio?.trim() || "No bio yet"}</dd>
+                </dl>
+            </div>
+        </dialog>
+    );
+}
+
+
 function getSessionDeviceName(
     userAgent: string | null,
 ): string {
@@ -255,6 +296,7 @@ function App() {
     );
 
     const [profileOpen, setProfileOpen] = useState(false);
+    const [peerProfileOpen, setPeerProfileOpen] = useState(false);
 
     const [settingsTab, setSettingsTab] = useState<SettingsTab>("profile");
 
@@ -276,6 +318,11 @@ function App() {
     const typingTimeoutRef = useRef< ReturnType<typeof setTimeout> | null >(null);
 
     const typingChatIdRef = useRef<string | null>(null);
+
+
+    useEffect(() => {
+        setPeerProfileOpen(false);
+    }, [activeChat?.id, draftPeer?.id, user?.id]);
 
 
     function sendWebSocketEvent(
@@ -2713,11 +2760,15 @@ function App() {
                             />
 
                             <div>
-                                <strong>
-                                    {getUserDisplayName(
-                                        currentPeer,
-                                    )}
-                                </strong>
+                                <button
+                                    className="peer-profile-trigger"
+                                    type="button"
+                                    onClick={() => setPeerProfileOpen(true)}
+                                    aria-haspopup="dialog"
+                                    aria-label={`View profile of ${getUserDisplayName(currentPeer)}`}
+                                >
+                                    {getUserDisplayName(currentPeer)}
+                                </button>
 
                                 <span
                                     className={
@@ -3415,6 +3466,13 @@ function App() {
                         </div>
                     </section>
                 </div>
+            )}
+
+            {peerProfileOpen && currentPeer && (
+                <PeerProfileDialog
+                    user={currentPeer}
+                    onClose={() => setPeerProfileOpen(false)}
+                />
             )}
 
             {imageViewerUrl && (() => {
