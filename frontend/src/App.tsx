@@ -897,10 +897,6 @@ function App() {
 
                 const sortedChats = getVisibleChats(userChats);
                 setChats(sortedChats);
-
-                if (sortedChats.length > 0) {
-                    await openChat(sortedChats[0], token!);
-                }
             } catch {
                 setToken(null);
                 setUser(null);
