@@ -376,8 +376,43 @@ button {
     font-size: 13px;
 }
 
+.messages-viewport {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.scroll-to-latest {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #354658;
+    border-radius: 50%;
+    background: #17212b;
+    color: #e8eef3;
+    box-shadow: 0 3px 12px #0005;
+    cursor: pointer;
+}
+
+.scroll-to-latest:hover {
+    background: #253341;
+}
+
+.scroll-to-latest:focus-visible {
+    outline: 2px solid #3390ec;
+    outline-offset: 3px;
+}
+
 .messages {
     flex: 1;
+    min-height: 0;
+    overflow-anchor: none;
     overflow-y: auto;
     padding: 24px max(24px, 8vw);
     background:
