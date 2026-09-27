@@ -312,6 +312,8 @@ function App() {
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
     const messagesContentRef = useRef<HTMLDivElement | null>(null);
     const keepLatestVisibleRef = useRef(true);
+    const replyNavigationRef = useRef(0);
+    const [replyTarget, setReplyTarget] = useState<{ id: string; request: number } | null>(null);
     const [showScrollToLatest, setShowScrollToLatest] = useState(false);
     const scrollToLatestOnOpenRef = useRef(false);
     const websocketRef = useRef<WebSocket | null>(null);
@@ -325,6 +327,69 @@ function App() {
         setPeerProfileOpen(false);
     }, [activeChat?.id, draftPeer?.id, user?.id]);
 
+
+    useLayoutEffect(() => {
+        if (!replyTarget) return;
+        const container = messagesContainerRef.current;
+        const target = document.getElementById(`message-${replyTarget.id}`);
+        if (!container || !target || !container.contains(target)) return;
+        keepLatestVisibleRef.current = false;
+        container.scrollTo({
+            top: container.scrollTop + target.getBoundingClientRect().top
+                - container.getBoundingClientRect().top
+                - (container.clientHeight - target.clientHeight) / 2,
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                ? "instant" : "smooth",
+        });
+        target.focus({ preventScroll: true });
+        const timeout = window.setTimeout(() => setReplyTarget(null), 2000);
+        return () => window.clearTimeout(timeout);
+    }, [replyTarget]);
+
+    useEffect(() => {
+        replyNavigationRef.current += 1;
+        setReplyTarget(null);
+    }, [activeChat?.id, draftPeer?.id]);
+
+    async function navigateToReply(messageId: string) {
+        if (!token || !activeChat) return;
+        const chatId = activeChat.id;
+        const request = ++replyNavigationRef.current;
+        const isCurrent = () => request === replyNavigationRef.current
+            && activeChatIdRef.current === chatId;
+        setReplyTarget(null);
+        try {
+            let history = messages;
+            const olderMessages: Message[] = [];
+            while (!history.some((message) => message.id === messageId)) {
+                const oldest = history[0];
+                if (!oldest) break;
+                const page = await getMessages(token, chatId, oldest.id);
+                if (!isCurrent()) return;
+                if (page.length === 0) break;
+                olderMessages.unshift(...page);
+                history = [...page, ...history];
+            }
+            if (!isCurrent()) return;
+            const target = history.find((message) => message.id === messageId);
+            if (!target || target.deleted_at !== null) {
+                setError("This message is no longer available.");
+                return;
+            }
+            keepLatestVisibleRef.current = false;
+            if (olderMessages.length > 0) {
+                setMessages((current) => {
+                    const ids = new Set(current.map((message) => message.id));
+                    return [...olderMessages.filter((message) => !ids.has(message.id)), ...current];
+                });
+            }
+            setReplyTarget({ id: messageId, request });
+        } catch (caughtError) {
+            if (isCurrent()) {
+                setError(caughtError instanceof Error ? caughtError.message : "Could not load message");
+            }
+        }
+    }
 
     function sendWebSocketEvent(
         data: Record<string, unknown>,
@@ -2880,7 +2945,9 @@ function App() {
                                             )}
 
                                             <div
-                                                className={`message-row ${isOwnMessage ? "own" : ""}`}
+                                                id={`message-${message.id}`}
+                                                tabIndex={-1}
+                                                className={`message-row ${isOwnMessage ? "own" : ""} ${replyTarget?.id === message.id ? "reply-target" : ""}`}
                                                 onContextMenu={(event) =>
                                                     openMessageContextMenu(
                                                         event,
@@ -2890,7 +2957,12 @@ function App() {
                                             >
                                                 <div className={`message-bubble ${imageUrl ? "media-message" : ""}`}>
                                                     {message.reply_to_message && (
-                                                        <div className="message-reply">
+                                                        <button
+                                                            className="message-reply"
+                                                            type="button"
+                                                            aria-label="Go to original message"
+                                                            onClick={() => void navigateToReply(message.reply_to_message!.id)}
+                                                        >
                                                             <strong>
                                                                 {message.reply_to_message.sender_id ===
                                                                 user.id
@@ -2906,7 +2978,7 @@ function App() {
                                                                         ? "Photo"
                                                                         : "Message")}
                                                             </span>
-                                                        </div>
+                                                        </button>
                                                     )}
 
                                                     {imageUrl ? (

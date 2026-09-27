@@ -400,6 +400,7 @@ async def get_messages(
             le=100,
         ),
     ] = 50,
+    before_message_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     await check_chat_membership(
@@ -408,15 +409,23 @@ async def get_messages(
         current_user.id,
     )
 
+    query = select(Message).where(Message.chat_id == chat_id)
+    if before_message_id is not None:
+        cursor = await db.scalar(
+            select(Message).where(
+                Message.id == before_message_id,
+                Message.chat_id == chat_id,
+            )
+        )
+        if cursor is None:
+            raise HTTPException(status_code=404, detail="Message not found")
+        query = query.where(
+            (Message.created_at < cursor.created_at)
+            | ((Message.created_at == cursor.created_at) & (Message.id < cursor.id))
+        )
+
     result = await db.execute(
-        select(Message)
-        .where(
-            Message.chat_id == chat_id,
-        )
-        .order_by(
-            Message.created_at.desc(),
-        )
-        .limit(limit)
+        query.order_by(Message.created_at.desc(), Message.id.desc()).limit(limit)
     )
 
     messages = list(

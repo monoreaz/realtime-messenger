@@ -595,9 +595,13 @@ export async function createPrivateChat(
 export async function getMessages(
     token: string,
     chatId: string,
+    beforeMessageId?: string,
 ): Promise<Message[]> {
+    const query = beforeMessageId
+        ? `?before_message_id=${encodeURIComponent(beforeMessageId)}`
+        : "";
     const response = await fetch(
-        `${API_BASE_URL}/chats/${chatId}/messages`,
+        `${API_BASE_URL}/chats/${chatId}/messages${query}`,
         {
             headers: {
                 Authorization:
