@@ -130,6 +130,8 @@ def build_message_response(
         )
 
     return MessageResponse(
+        # Call history uses deterministic UUIDv5 IDs; user messages use UUIDv4.
+        is_call=message.id.version == 5,
         id=message.id,
         chat_id=message.chat_id,
         sender_id=message.sender_id,

@@ -222,3 +222,24 @@ I wanted something that combines several things I'm interested in:
 * Distributed systems
 
 I mainly started this project to learn and it is still in development, and I'm adding new features as I learn more. If you find any bugs, security vulnerabilities, or have suggestions for improvements, feel free to open an issue.
+
+### Аудиозвонки
+
+Кнопка трубки в шапке личного чата запускает WebRTC-аудиозвонок.
+Получатель должен открыть приложение: он может ответить или отклонить вызов.
+Для доступа к микрофону необходим HTTPS (или localhost) и разрешение браузера.
+Сигнализация использует существующий авторизованный WebSocket; сервер проверяет
+участников личного чата. Текущий менеджер подключений рассчитан на один worker.
+
+По умолчанию используется STUN. Для связи в сетях, блокирующих прямое соединение,
+настройте TURN в `frontend/.env.local` и перезапустите Vite (для production — пересоберите):
+
+```
+VITE_TURN_URL=turn:your-turn-host:3478
+VITE_TURN_USERNAME=your-turn-user
+VITE_TURN_CREDENTIAL=your-turn-credential
+```
+
+Эти параметры видны браузеру: используйте отдельные ограниченные учётные данные
+TURN, а не административный пароль сервера. Без TURN соединение через некоторые
+мобильные и корпоративные сети может не установиться.

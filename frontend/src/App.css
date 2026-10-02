@@ -365,7 +365,8 @@ button {
     height: 44px;
 }
 
-.chat-header > div:last-child {
+.chat-header .chat-peer-info {
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -2731,3 +2732,43 @@ button {
 .pinned-list-empty { padding: 16px; color: #a5b3c1; }
 .message-pinned-badge { display: inline-flex; align-items: center; font-size: 12px; }
 .pinned-list-toggle:focus-visible, .pinned-list-item:focus-visible { outline: 2px solid #69b5ff; outline-offset: -3px; }
+
+.call-button { flex-shrink: 0; margin-left: auto; display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: #729eff; cursor: pointer; }
+.call-button:hover { background: #729eff22; }
+.call-button:disabled { opacity: .4; cursor: default; }
+.call-notice { position: fixed; z-index: 1600; top: 16px; left: 50%; transform: translateX(-50%); width: min(460px, 90vw); padding: 16px; border-radius: 16px; background: #202838; color: white; box-shadow: 0 8px 32px #0006; }
+.call-notice button { margin: 8px 4px 0; }
+.call-notice button { padding: 12px 16px; border: 0; border-radius: 20px; cursor: pointer; }
+
+.audio-call-dialog { width: min(400px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 32px 24px; border: 1px solid #3a4d67; border-radius: 28px; background: radial-gradient(ellipse at top, #293e60, #152031 70%); color: #fff; text-align: center; box-shadow: 0 24px 90px #0008; }
+.audio-call-dialog::backdrop { background: #080f1dcc; backdrop-filter: blur(8px); }
+.audio-call-kind { color: #9badc5; font-size: 11px; font-weight: 700; letter-spacing: 2px; }
+.audio-call-avatar { display: grid; place-items: center; width: 92px; height: 92px; margin: 28px auto 20px; border-radius: 50%; background: linear-gradient(135deg, #5989d8, #6260b5); font-size: 38px; font-weight: 600; box-shadow: 0 0 0 9px #719cec12; }
+.audio-call-avatar.is-connected { box-shadow: 0 0 0 9px #54cba512; }
+.audio-call-dialog h2 { margin: 0 0 10px; font-size: 24px; overflow-wrap: anywhere; }
+.audio-call-status { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 0; color: #b6c8df; font-size: 14px; }
+.audio-call-status > span { width: 6px; height: 6px; border-radius: 50%; background: #62d8af; }
+.audio-call-duration { margin: 22px 0 6px; font-size: 38px; font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: 2px; }
+.audio-call-hint { min-height: 20px; margin: 0; color: #96a9c2; font-size: 12px; }
+.audio-call-controls { display: flex; justify-content: center; gap: 44px; margin-top: 32px; }
+.audio-call-control { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 0; border: 0; background: none; color: #d7e2f2; font-size: 12px; cursor: pointer; }
+.audio-call-control > span { display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%; background: #30415a; color: #fff; font-size: 27px; }
+.audio-call-control.end > span { background: #de465b; transform: rotate(135deg); }
+.audio-call-control.accept > span { background: #269e76; }
+.audio-call-control.is-muted > span { background: #e4ecf7; color: #243650; }
+.audio-call-control:hover > span { filter: brightness(1.15); }
+.audio-call-control:focus-visible { outline: 2px solid #9fc2ff; outline-offset: 6px; border-radius: 12px; }
+.audio-call-control:disabled { opacity: .45; cursor: default; }
+.audio-call-error { margin-top: 16px; color: #ffd49c; font-size: 13px; }
+.audio-call-error button { display: block; margin: 8px auto; padding: 8px 14px; border: 0; border-radius: 12px; background: #30415a; color: white; cursor: pointer; }
+
+.message-bubble.call-message-bubble { border: 1px solid #4c78934d; background: #192e3c; padding: 13px 14px 8px; }
+.message-row.own .message-bubble.call-message-bubble { background: #24445c; border-color: #75adcd55; }
+.call-message-card { display: flex; align-items: center; gap: 12px; padding: 2px 0 5px; }
+.call-message-symbol { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; background: #67d6b31c; color: #7ee0bd; }
+.call-message-details { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.call-message-details strong { font-size: 14px; font-weight: 600; color: #e8f2fa; }
+.call-message-details > span { font-size: 12px; color: #aec7d8; }
+.call-message-details > span > span { color: #7ee0bd; }
+.call-message-card.unanswered .call-message-symbol { color: #f4ae9e; background: #ed917a1a; }
+.call-message-card.unanswered .call-message-details > span > span { color: #f4ae9e; }

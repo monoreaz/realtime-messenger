@@ -39,6 +39,9 @@ import {
 } from "./api";
 
 import "./App.css";
+import { useAudioCall } from "./useAudioCall";
+import { AudioCallDialog } from "./AudioCallDialog";
+import { CallMessage } from "./CallMessage";
 import { PinnedMessagesDialog } from "./PinnedMessagesDialog";
 import { selectPinnedMessage } from "./pinnedMessages";
 
@@ -327,6 +330,7 @@ function App() {
     const [showScrollToLatest, setShowScrollToLatest] = useState(false);
     const scrollToLatestOnOpenRef = useRef(false);
     const websocketRef = useRef<WebSocket | null>(null);
+    const audioCall = useAudioCall(websocketRef, wsStatus === "connected");
 
     const typingTimeoutRef = useRef< ReturnType<typeof setTimeout> | null >(null);
 
@@ -1088,6 +1092,10 @@ function App() {
 
         websocket.addEventListener("message", (event) => {
             const data = JSON.parse(event.data);
+            if (typeof data.type === "string" && data.type.startsWith("call.")) {
+                void audioCall.receive(data);
+                return;
+            }
 
             if (data.type === "connection.ready") {
                 setWsStatus("connected");
@@ -2887,6 +2895,8 @@ function App() {
                 </div>
             </aside>
 
+            {audioCall.error && !audioCall.call && <div className="call-notice" role="status">{audioCall.error} <button onClick={audioCall.play}>Enable audio</button><button onClick={audioCall.dismissError} aria-label="Close">×</button></div>}
+            {audioCall.call && <AudioCallDialog name={audioCall.call.name} phase={audioCall.call.phase} elapsedSeconds={audioCall.elapsedSeconds} muted={audioCall.muted} onAccept={() => void audioCall.accept()} onEnd={() => audioCall.end()} onToggleMute={audioCall.toggleMute} error={audioCall.error} onPlayAudio={audioCall.play} />}
             <section className="chat-panel">
                 {currentPeer ? (
                     <>
@@ -2900,7 +2910,7 @@ function App() {
                                 className="chat-avatar"
                             />
 
-                            <div>
+                            <div className="chat-peer-info">
                                 <button
                                     className="peer-profile-trigger"
                                     type="button"
@@ -2935,6 +2945,15 @@ function App() {
                                           : "Offline"}
                                 </span>
                             </div>
+                            <button className="call-button" type="button" aria-label="Start audio call" title="Start audio call" disabled={wsStatus !== "connected" || Boolean(audioCall.call)} onClick={() => {
+                                if (!token) return;
+                                const peer = currentPeer;
+                                void createPrivateChat(token, peer.id)
+                                    .then(() => audioCall.start(peer.id, getUserDisplayName(peer)))
+                                    .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Could not start the call"));
+                            }}>
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L9 10.9a16 16 0 0 0 4.1 4.1l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 2.7 3Z"/></svg>
+                            </button>
                         </header>
                         {displayedPin && (
                             <div className="pinned-message-toolbar">
@@ -3036,7 +3055,7 @@ function App() {
                                                     )
                                                 }
                                             >
-                                                <div className={`message-bubble ${imageUrl ? "media-message" : ""}`}>
+                                                <div className={`message-bubble ${message.is_call ? "call-message-bubble" : ""} ${imageUrl ? "media-message" : ""}`}>
                                                     {message.reply_to_message && (
                                                         <button
                                                             className="message-reply"
@@ -3087,6 +3106,7 @@ function App() {
                                                             )}
                                                         </div>
                                                     ) : message.content && (
+                                                        message.is_call ? <CallMessage content={message.content} outgoing={isOwnMessage} /> :
                                                         <div className="message-content">
                                                             {message.content}
                                                         </div>

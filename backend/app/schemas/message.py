@@ -60,6 +60,7 @@ class ReplyMessageResponse(BaseModel):
 
 
 class MessageResponse(BaseModel):
+    is_call: bool = False
     id: uuid.UUID
     chat_id: uuid.UUID
     sender_id: uuid.UUID

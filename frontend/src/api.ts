@@ -43,6 +43,7 @@ export interface ReplyMessage {
 
 
 export interface Message {
+    is_call?: boolean;
     id: string;
     chat_id: string;
     sender_id: string;
