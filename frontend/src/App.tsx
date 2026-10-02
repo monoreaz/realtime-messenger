@@ -40,6 +40,7 @@ import {
 } from "./api";
 
 import "./App.css";
+import { selectPinnedMessage } from "./pinnedMessages";
 
 
 type AuthMode = "login" | "register" | "forgot" | "reset" | "resend";
@@ -165,6 +166,9 @@ function App() {
     const [draftPeer, setDraftPeer] = useState<User | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
+    const [pinnedAnchorId, setPinnedAnchorId] = useState<string | null>(null);
+    const chatPins = pinnedMessages.filter(message => message.chat_id === activeChat?.id && !message.deleted_at);
+    const displayedPin = selectPinnedMessage(chatPins, messages.find(message => message.id === pinnedAnchorId));
 
     const [mode, setMode] = useState<AuthMode>(() => {
         const params = new URLSearchParams(window.location.search);
@@ -312,6 +316,34 @@ function App() {
         replyNavigationRef.current += 1;
         setReplyTarget(null);
     }, [activeChat?.id, draftPeer?.id]);
+
+    function updatePinnedAnchor() {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+        if (container.scrollHeight - container.clientHeight - container.scrollTop < 48) {
+            setPinnedAnchorId(null);
+            return;
+        }
+        const bottom = container.getBoundingClientRect().top + container.clientTop + container.clientHeight;
+        const rows = container.querySelectorAll<HTMLElement>(".message-row[id]");
+        let anchorId: string | null = null;
+        for (const row of rows) {
+            if (row.getBoundingClientRect().top >= bottom) break;
+            anchorId = row.id.slice("message-".length);
+        }
+        setPinnedAnchorId(anchorId);
+    }
+
+    useLayoutEffect(() => {
+        updatePinnedAnchor();
+        const content = messagesContentRef.current;
+        const container = messagesContainerRef.current;
+        if (!content || !container) return;
+        const observer = new ResizeObserver(updatePinnedAnchor);
+        observer.observe(content);
+        observer.observe(container);
+        return () => observer.disconnect();
+    }, [activeChat?.id, messages, messagesLoading]);
 
     async function navigateToReply(messageId: string) {
         if (!token || !activeChat) return;
@@ -2973,10 +3005,10 @@ function App() {
                                 </span>
                             </div>
                         </header>
-                        {pinnedMessages.length > 0 && (
-                            <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(pinnedMessages[0].id)}>
+                        {displayedPin && (
+                            <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(displayedPin.id)}>
                                 <span className="pinned-message-icon">📌</span>
-                                <span><strong>{pinnedMessages.length} pinned message{pinnedMessages.length === 1 ? "" : "s"}</strong><small>{pinnedMessages[0].content || (pinnedMessages[0].image_url ? "Photo" : "Video")}</small></span>
+                                <span><strong>{chatPins.length} pinned message{chatPins.length === 1 ? "" : "s"}</strong><small>{displayedPin.content || (displayedPin.image_url ? "Photo" : "Video")}</small></span>
                                 <span aria-hidden="true">›</span>
                             </button>
                         )}
@@ -2991,6 +3023,7 @@ function App() {
                                     container.scrollHeight - container.clientHeight -
                                     container.scrollTop < 48;
                                 setShowScrollToLatest(!keepLatestVisibleRef.current);
+                                updatePinnedAnchor();
                             }}
                         >
                             <div ref={messagesContentRef}>
