@@ -29,6 +29,9 @@ import {
     revokeSession,
     editMessage,
     deleteMessage,
+    getPinnedMessages,
+    pinMessage,
+    unpinMessage,
     sendVideoMessage,
     type SessionInfo,
     type Chat,
@@ -161,6 +164,7 @@ function App() {
     const [activeChat, setActiveChat] = useState<Chat | null>(null);
     const [draftPeer, setDraftPeer] = useState<User | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
+    const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
 
     const [mode, setMode] = useState<AuthMode>(() => {
         const params = new URLSearchParams(window.location.search);
@@ -275,6 +279,8 @@ function App() {
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
     const messagesContentRef = useRef<HTMLDivElement | null>(null);
     const keepLatestVisibleRef = useRef(true);
+    const replyNavigationRef = useRef(0);
+    const [replyTarget, setReplyTarget] = useState<{ id: string; request: number } | null>(null);
     const [showScrollToLatest, setShowScrollToLatest] = useState(false);
     const scrollToLatestOnOpenRef = useRef(false);
     const websocketRef = useRef<WebSocket | null>(null);
@@ -283,6 +289,69 @@ function App() {
 
     const typingChatIdRef = useRef<string | null>(null);
 
+
+    useLayoutEffect(() => {
+        if (!replyTarget) return;
+        const container = messagesContainerRef.current;
+        const target = document.getElementById(`message-${replyTarget.id}`);
+        if (!container || !target || !container.contains(target)) return;
+        keepLatestVisibleRef.current = false;
+        container.scrollTo({
+            top: container.scrollTop + target.getBoundingClientRect().top
+                - container.getBoundingClientRect().top
+                - (container.clientHeight - target.clientHeight) / 2,
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                ? "instant" : "smooth",
+        });
+        target.focus({ preventScroll: true });
+        const timeout = window.setTimeout(() => setReplyTarget(null), 2000);
+        return () => window.clearTimeout(timeout);
+    }, [replyTarget]);
+
+    useEffect(() => {
+        replyNavigationRef.current += 1;
+        setReplyTarget(null);
+    }, [activeChat?.id, draftPeer?.id]);
+
+    async function navigateToReply(messageId: string) {
+        if (!token || !activeChat) return;
+        const chatId = activeChat.id;
+        const request = ++replyNavigationRef.current;
+        const isCurrent = () => request === replyNavigationRef.current
+            && activeChatIdRef.current === chatId;
+        setReplyTarget(null);
+        try {
+            let history = messages;
+            const olderMessages: Message[] = [];
+            while (!history.some((message) => message.id === messageId)) {
+                const oldest = history[0];
+                if (!oldest) break;
+                const page = await getMessages(token, chatId, oldest.id);
+                if (!isCurrent()) return;
+                if (page.length === 0) break;
+                olderMessages.unshift(...page);
+                history = [...page, ...history];
+            }
+            if (!isCurrent()) return;
+            const target = history.find((message) => message.id === messageId);
+            if (!target || target.deleted_at !== null) {
+                setError("This message is no longer available.");
+                return;
+            }
+            keepLatestVisibleRef.current = false;
+            if (olderMessages.length > 0) {
+                setMessages((current) => {
+                    const ids = new Set(current.map((message) => message.id));
+                    return [...olderMessages.filter((message) => !ids.has(message.id)), ...current];
+                });
+            }
+            setReplyTarget({ id: messageId, request });
+        } catch (caughtError) {
+            if (isCurrent()) {
+                setError(caughtError instanceof Error ? caughtError.message : "Could not load message");
+            }
+        }
+    }
 
     function sendWebSocketEvent(
         data: Record<string, unknown>,
@@ -1159,11 +1228,13 @@ function App() {
                 if (updatedMessage.chat_id === activeChatIdRef.current) {
                     setMessages((currentMessages) =>
                         currentMessages.map((message) =>
-                            message.id === updatedMessage.id
-                                ? updatedMessage
-                                : message,
+                            message.id === updatedMessage.id ? updatedMessage : message,
                         ),
                     );
+                    setPinnedMessages((currentPinned) => {
+                        const rest = currentPinned.filter((message) => message.id !== updatedMessage.id);
+                        return updatedMessage.pinned_at ? [updatedMessage, ...rest] : rest;
+                    });
                 }
 
                 if (data.type === "message.deleted") {
@@ -1497,12 +1568,13 @@ function App() {
         setError("");
 
         try {
-            const chatMessages = await getMessages(
-                currentToken,
-                chat.id,
-            );
+            const [chatMessages, chatPinnedMessages] = await Promise.all([
+                getMessages(currentToken, chat.id),
+                getPinnedMessages(currentToken, chat.id),
+            ]);
 
             setMessages(chatMessages);
+            setPinnedMessages(chatPinnedMessages);
 
             await markChatRead(
                 currentToken,
@@ -1588,6 +1660,7 @@ function App() {
         setActiveChat(null);
         setDraftPeer(targetUser);
         setMessages([]);
+        setPinnedMessages([]);
         setTypingUserIds(new Set());
         setMessagesLoading(false);
 
@@ -1650,7 +1723,7 @@ function App() {
         event.stopPropagation();
 
         const menuWidth = 184;
-        const menuHeight = message.sender_id === user?.id ? 132 : 48;
+        const menuHeight = message.sender_id === user?.id ? 180 : 96;
 
         setContextMenu({
             message,
@@ -1665,6 +1738,27 @@ function App() {
         });
     }
 
+
+    async function togglePinnedMessage(message: Message) {
+        if (!token || !activeChat || message.deleted_at) return;
+        setContextMenu(null);
+        setMessageActionLoading(message.id);
+        try {
+            const updated = message.pinned_at
+                ? await unpinMessage(token, activeChat.id, message.id)
+                : await pinMessage(token, activeChat.id, message.id);
+            setMessages((current) => current.map((item) => item.id === updated.id ? updated : item));
+            setPinnedMessages((current) => updated.pinned_at ? [updated, ...current.filter((item) => item.id !== updated.id)] : current.filter((item) => item.id !== updated.id));
+        } catch (caughtError) {
+            setError(caughtError instanceof Error ? caughtError.message : "Could not update pinned message");
+        } finally { setMessageActionLoading(null); }
+    }
+
+    function jumpToMessage(messageId: string) {
+        const target = document.getElementById(`message-${messageId}`);
+        if (target) { target.scrollIntoView({ behavior: "smooth", block: "center" }); setReplyTarget({ id: messageId, request: ++replyNavigationRef.current }); }
+        else void navigateToReply(messageId);
+    }
 
     function requestDeleteMessage(
         message: Message,
@@ -2879,6 +2973,13 @@ function App() {
                                 </span>
                             </div>
                         </header>
+                        {pinnedMessages.length > 0 && (
+                            <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(pinnedMessages[0].id)}>
+                                <span className="pinned-message-icon">📌</span>
+                                <span><strong>{pinnedMessages.length} pinned message{pinnedMessages.length === 1 ? "" : "s"}</strong><small>{pinnedMessages[0].content || (pinnedMessages[0].image_url ? "Photo" : "Video")}</small></span>
+                                <span aria-hidden="true">›</span>
+                            </button>
+                        )}
 
                         <div className="messages-viewport">
                         <div
@@ -2956,7 +3057,9 @@ function App() {
                                             )}
 
                                             <div
-                                                className={`message-row ${isOwnMessage ? "own" : ""}`}
+                                                id={`message-${message.id}`}
+                                                tabIndex={-1}
+                                                className={`message-row ${isOwnMessage ? "own" : ""} ${replyTarget?.id === message.id ? "reply-target" : ""}`}
                                                 onContextMenu={(event) =>
                                                     openMessageContextMenu(
                                                         event,
@@ -3305,6 +3408,11 @@ function App() {
                                 >
                                     <span className="message-context-icon">↩</span>
                                     <span>Reply</span>
+                                </button>
+
+                                <button type="button" onClick={() => void togglePinnedMessage(contextMenu.message)}>
+                                    <span className="message-context-icon">{contextMenu.message.pinned_at ? "−" : "📌"}</span>
+                                    <span>{contextMenu.message.pinned_at ? "Unpin" : "Pin message"}</span>
                                 </button>
 
                                 {contextMenu.message.sender_id === user.id &&
