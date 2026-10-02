@@ -51,6 +51,8 @@ export interface Message {
     created_at: string;
     edited_at: string | null;
     deleted_at: string | null;
+    pinned_at: string | null;
+    pinned_by_id: string | null;
     reply_to_message_id: string | null;
     reply_to_message: ReplyMessage | null;
 }
@@ -621,6 +623,22 @@ export async function getMessages(
 
     return response.json();
 }
+
+
+export async function getPinnedMessages(token: string, chatId: string): Promise<Message[]> {
+    const response = await fetch(`${API_BASE_URL}/chats/${chatId}/pinned-messages`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not load pinned messages"));
+    return response.json();
+}
+
+async function setMessagePinned(token: string, chatId: string, messageId: string, pinned: boolean): Promise<Message> {
+    const response = await fetch(`${API_BASE_URL}/chats/${chatId}/messages/${messageId}/pin`, { method: pinned ? "POST" : "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) throw new Error(await getErrorMessage(response, pinned ? "Could not pin message" : "Could not unpin message"));
+    return response.json();
+}
+
+export const pinMessage = (token: string, chatId: string, messageId: string) => setMessagePinned(token, chatId, messageId, true);
+export const unpinMessage = (token: string, chatId: string, messageId: string) => setMessagePinned(token, chatId, messageId, false);
 
 
 export async function sendMessage(

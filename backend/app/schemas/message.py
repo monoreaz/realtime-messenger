@@ -70,3 +70,5 @@ class MessageResponse(BaseModel):
     reply_to_message: ReplyMessageResponse | None = None
     edited_at: datetime | None = None
     deleted_at: datetime | None = None
+    pinned_at: datetime | None = None
+    pinned_by_id: uuid.UUID | None = None

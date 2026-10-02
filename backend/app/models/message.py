@@ -81,3 +81,6 @@ class Message(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    pinned_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

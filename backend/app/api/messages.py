@@ -52,7 +52,6 @@ ALLOWED_MESSAGE_IMAGE_TYPES = {
 
 MAX_MESSAGE_IMAGE_SIZE = 10 * 1024 * 1024
 
-
 async def check_chat_membership(
     db: AsyncSession,
     chat_id: uuid.UUID,
@@ -139,6 +138,8 @@ def build_message_response(
         created_at=message.created_at,
         edited_at=message.edited_at,
         deleted_at=message.deleted_at,
+        pinned_at=message.pinned_at,
+        pinned_by_id=message.pinned_by_id,
         reply_to_message_id=message.reply_to_message_id,
         reply_to_message=reply_response,
     )
@@ -382,7 +383,6 @@ async def send_image_message(
 
     return message_response
 
-
 @router.get(
     "/{chat_id}/messages",
     response_model=list[MessageResponse],
@@ -438,6 +438,41 @@ async def get_messages(
         db,
         messages,
     )
+@router.get("/{chat_id}/pinned-messages", response_model=list[MessageResponse])
+async def get_pinned_messages(chat_id: uuid.UUID, current_user: Annotated[User, Depends(get_current_user)], db: AsyncSession = Depends(get_db)):
+    await check_chat_membership(db, chat_id, current_user.id)
+    result = await db.execute(select(Message).where(Message.chat_id == chat_id, Message.pinned_at.is_not(None)).order_by(Message.pinned_at.desc()))
+    return await build_message_responses(db, list(result.scalars().all()))
+
+
+async def broadcast_message_update(db: AsyncSession, chat_id: uuid.UUID, response: MessageResponse) -> None:
+    await manager.send_to_users(await get_chat_member_ids(db, chat_id), {"type": "message.updated", "message": response.model_dump(mode="json")})
+
+
+@router.post("/{chat_id}/messages/{message_id}/pin", response_model=MessageResponse)
+async def pin_message(chat_id: uuid.UUID, message_id: uuid.UUID, current_user: Annotated[User, Depends(get_current_user)], db: AsyncSession = Depends(get_db)):
+    await check_chat_membership(db, chat_id, current_user.id)
+    message = await db.scalar(select(Message).where(Message.id == message_id, Message.chat_id == chat_id))
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if message.deleted_at is not None:
+        raise HTTPException(status_code=400, detail="Deleted messages cannot be pinned")
+    message.pinned_at = message.pinned_at or datetime.now(timezone.utc)
+    message.pinned_by_id = message.pinned_by_id or current_user.id
+    await db.commit(); await db.refresh(message)
+    response = build_message_response(message); await broadcast_message_update(db, chat_id, response); return response
+
+
+@router.delete("/{chat_id}/messages/{message_id}/pin", response_model=MessageResponse)
+async def unpin_message(chat_id: uuid.UUID, message_id: uuid.UUID, current_user: Annotated[User, Depends(get_current_user)], db: AsyncSession = Depends(get_db)):
+    await check_chat_membership(db, chat_id, current_user.id)
+    message = await db.scalar(select(Message).where(Message.id == message_id, Message.chat_id == chat_id))
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    message.pinned_at = None; message.pinned_by_id = None
+    await db.commit(); await db.refresh(message)
+    response = build_message_response(message); await broadcast_message_update(db, chat_id, response); return response
+
 @router.patch(
     "/{chat_id}/messages/{message_id}",
     response_model=MessageResponse,
@@ -558,6 +593,8 @@ async def delete_message(
 
     message.content = ""
     message.image_url = None
+    message.pinned_at = None
+    message.pinned_by_id = None
     message.deleted_at = datetime.now(timezone.utc)
 
     await db.commit()

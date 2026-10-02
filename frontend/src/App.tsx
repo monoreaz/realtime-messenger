@@ -29,6 +29,9 @@ import {
     revokeSession,
     editMessage,
     deleteMessage,
+    getPinnedMessages,
+    pinMessage,
+    unpinMessage,
     type SessionInfo,
     type Chat,
     type Message,
@@ -201,6 +204,7 @@ function App() {
     const [activeChat, setActiveChat] = useState<Chat | null>(null);
     const [draftPeer, setDraftPeer] = useState<User | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
+    const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
 
     const [mode, setMode] = useState<AuthMode>(() => {
         const params = new URLSearchParams(window.location.search);
@@ -1208,11 +1212,13 @@ function App() {
                 if (updatedMessage.chat_id === activeChatIdRef.current) {
                     setMessages((currentMessages) =>
                         currentMessages.map((message) =>
-                            message.id === updatedMessage.id
-                                ? updatedMessage
-                                : message,
+                            message.id === updatedMessage.id ? updatedMessage : message,
                         ),
                     );
+                    setPinnedMessages((currentPinned) => {
+                        const rest = currentPinned.filter((message) => message.id !== updatedMessage.id);
+                        return updatedMessage.pinned_at ? [updatedMessage, ...rest] : rest;
+                    });
                 }
 
                 if (data.type === "message.deleted") {
@@ -1544,12 +1550,13 @@ function App() {
         setError("");
 
         try {
-            const chatMessages = await getMessages(
-                currentToken,
-                chat.id,
-            );
+            const [chatMessages, chatPinnedMessages] = await Promise.all([
+                getMessages(currentToken, chat.id),
+                getPinnedMessages(currentToken, chat.id),
+            ]);
 
             setMessages(chatMessages);
+            setPinnedMessages(chatPinnedMessages);
 
             await markChatRead(
                 currentToken,
@@ -1634,6 +1641,7 @@ function App() {
         setActiveChat(null);
         setDraftPeer(targetUser);
         setMessages([]);
+        setPinnedMessages([]);
         setTypingUserIds(new Set());
         setMessagesLoading(false);
 
@@ -1695,7 +1703,7 @@ function App() {
         event.stopPropagation();
 
         const menuWidth = 184;
-        const menuHeight = message.sender_id === user?.id ? 132 : 48;
+        const menuHeight = message.sender_id === user?.id ? 180 : 96;
 
         setContextMenu({
             message,
@@ -1710,6 +1718,27 @@ function App() {
         });
     }
 
+
+    async function togglePinnedMessage(message: Message) {
+        if (!token || !activeChat || message.deleted_at) return;
+        setContextMenu(null);
+        setMessageActionLoading(message.id);
+        try {
+            const updated = message.pinned_at
+                ? await unpinMessage(token, activeChat.id, message.id)
+                : await pinMessage(token, activeChat.id, message.id);
+            setMessages((current) => current.map((item) => item.id === updated.id ? updated : item));
+            setPinnedMessages((current) => updated.pinned_at ? [updated, ...current.filter((item) => item.id !== updated.id)] : current.filter((item) => item.id !== updated.id));
+        } catch (caughtError) {
+            setError(caughtError instanceof Error ? caughtError.message : "Could not update pinned message");
+        } finally { setMessageActionLoading(null); }
+    }
+
+    function jumpToMessage(messageId: string) {
+        const target = document.getElementById(`message-${messageId}`);
+        if (target) { target.scrollIntoView({ behavior: "smooth", block: "center" }); setReplyTarget({ id: messageId, request: ++replyNavigationRef.current }); }
+        else void navigateToReply(messageId);
+    }
 
     function requestDeleteMessage(
         message: Message,
@@ -2872,6 +2901,13 @@ function App() {
                                 </span>
                             </div>
                         </header>
+                        {pinnedMessages.length > 0 && (
+                            <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(pinnedMessages[0].id)}>
+                                <span className="pinned-message-icon">📌</span>
+                                <span><strong>{pinnedMessages.length} pinned message{pinnedMessages.length === 1 ? "" : "s"}</strong><small>{pinnedMessages[0].content || (pinnedMessages[0].image_url ? "Photo" : "Video")}</small></span>
+                                <span aria-hidden="true">›</span>
+                            </button>
+                        )}
 
                         <div className="messages-viewport">
                         <div
@@ -3207,6 +3243,11 @@ function App() {
                                 >
                                     <span className="message-context-icon">↩</span>
                                     <span>Reply</span>
+                                </button>
+
+                                <button type="button" onClick={() => void togglePinnedMessage(contextMenu.message)}>
+                                    <span className="message-context-icon">{contextMenu.message.pinned_at ? "−" : "📌"}</span>
+                                    <span>{contextMenu.message.pinned_at ? "Unpin" : "Pin message"}</span>
                                 </button>
 
                                 {contextMenu.message.sender_id === user.id &&
