@@ -2713,3 +2713,21 @@ button {
 .pinned-message-strip strong { font-size: 12px; color: #3390ec; }
 .pinned-message-strip small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b7c1ca; }
 .pinned-message-icon { color: #3390ec; }
+
+.pinned-message-toolbar { display: flex; flex: 0 0 auto; min-width: 0; border-bottom: 1px solid #253341; background: #17212b; }
+.pinned-message-toolbar .pinned-message-strip { flex: 1; width: auto; min-width: 0; border-bottom: 0; }
+.pinned-list-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; flex: 0 0 auto; min-width: 60px; padding: 10px; border: 0; border-left: 1px solid #253341; background: transparent; color: #69b5ff; cursor: pointer; }
+.pinned-list-toggle:hover, .pinned-list-item:hover { background: #253341; }
+.pinned-list-dialog { width: min(480px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 40px)); padding: 0; border: 1px solid #354657; border-radius: 18px; background: #17212b; color: #fff; overflow: auto; }
+.pinned-list-dialog::backdrop { background: #0009; }
+.pinned-list-header { position: sticky; top: 0; display: flex; align-items: center; gap: 12px; padding: 16px; background: #17212b; border-bottom: 1px solid #354657; }
+.pinned-list-header h2 { flex: 1; margin: 0; font-size: 17px; }
+.pinned-list-header button { width: 36px; height: 36px; flex-shrink: 0; border: 0; border-radius: 50%; background: #253341; color: #fff; font-size: 24px; cursor: pointer; }
+.pinned-list { list-style: none; margin: 0; padding: 8px; }
+.pinned-list-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 10px; border: 0; border-radius: 10px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.pinned-list-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pinned-list-preview > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap; }
+.pinned-list-preview time { color: #a5b3c1; font-size: 12px; }
+.pinned-list-empty { padding: 16px; color: #a5b3c1; }
+.message-pinned-badge { display: inline-flex; align-items: center; font-size: 12px; }
+.pinned-list-toggle:focus-visible, .pinned-list-item:focus-visible { outline: 2px solid #69b5ff; outline-offset: -3px; }

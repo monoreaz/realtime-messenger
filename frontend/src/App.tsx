@@ -39,6 +39,7 @@ import {
 } from "./api";
 
 import "./App.css";
+import { PinnedMessagesDialog } from "./PinnedMessagesDialog";
 import { selectPinnedMessage } from "./pinnedMessages";
 
 
@@ -206,6 +207,7 @@ function App() {
     const [draftPeer, setDraftPeer] = useState<User | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
+    const [pinnedListChatId, setPinnedListChatId] = useState<string | null>(null);
     const [pinnedAnchorId, setPinnedAnchorId] = useState<string | null>(null);
     const chatPins = pinnedMessages.filter(message => message.chat_id === activeChat?.id && !message.deleted_at);
     const displayedPin = selectPinnedMessage(chatPins, messages.find(message => message.id === pinnedAnchorId));
@@ -357,6 +359,7 @@ function App() {
     useEffect(() => {
         replyNavigationRef.current += 1;
         setReplyTarget(null);
+        setPinnedListChatId(null);
     }, [activeChat?.id, draftPeer?.id]);
 
     function updatePinnedAnchor() {
@@ -2934,11 +2937,20 @@ function App() {
                             </div>
                         </header>
                         {displayedPin && (
-                            <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(displayedPin.id)}>
-                                <span className="pinned-message-icon">📌</span>
-                                <span><strong>{chatPins.length} pinned message{chatPins.length === 1 ? "" : "s"}</strong><small>{displayedPin.content || (displayedPin.image_url ? "Photo" : "Video")}</small></span>
-                                <span aria-hidden="true">›</span>
-                            </button>
+                            <div className="pinned-message-toolbar">
+                                <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(displayedPin.id)}>
+                                    <span className="pinned-message-icon">📌</span>
+                                    <span><strong>{chatPins.length} pinned message{chatPins.length === 1 ? "" : "s"}</strong><small>{displayedPin.content || (displayedPin.image_url ? "Photo" : "Video")}</small></span>
+                                    <span aria-hidden="true">›</span>
+                                </button>
+                                <button className="pinned-list-toggle" type="button" aria-label="Show all pinned messages" title="All pinned messages" aria-haspopup="dialog" onClick={() => setPinnedListChatId(activeChat?.id ?? null)}>
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1" /></svg>
+                                    <span>{chatPins.length}</span>
+                                </button>
+                            </div>
+                        )}
+                        {pinnedListChatId && pinnedListChatId === activeChat?.id && (
+                            <PinnedMessagesDialog messages={chatPins} onClose={() => setPinnedListChatId(null)} onSelect={jumpToMessage} />
                         )}
 
                         <div className="messages-viewport">
@@ -3081,6 +3093,7 @@ function App() {
                                                     )}
 
                                                     <div className="message-meta">
+                                                        {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message">📌</span>}
                                                         {message.edited_at && (
                                                             <span className="message-edited">
                                                                 edited
