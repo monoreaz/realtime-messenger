@@ -12,14 +12,13 @@ from fastapi import (
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message
 from app.models.user import User
-from app.schemas.chat import ChatResponse, LastMessageResponse
+from app.schemas.chat import ChatResponse, LastMessageResponse, GroupCreate
 from app.schemas.user import UserResponse
 from app.realtime.manager import manager
 
@@ -60,7 +59,7 @@ async def get_chat_by_direct_key(
 async def build_chat_response(
     db: AsyncSession,
     chat: Chat,
-    peer: User,
+    peer: User | None,
     current_user_id: uuid.UUID,
 ) -> ChatResponse:
     last_message_result = await db.execute(
@@ -85,14 +84,17 @@ async def build_chat_response(
 
     membership = membership_result.scalar_one()
 
-    peer_membership_result = await db.execute(
-        select(ChatMember).where(
-            ChatMember.chat_id == chat.id,
-            ChatMember.user_id == peer.id,
-        )
+    members_result = await db.execute(
+        select(User, ChatMember)
+        .join(ChatMember, ChatMember.user_id == User.id)
+        .where(ChatMember.chat_id == chat.id)
+        .order_by(User.username)
     )
-
-    peer_membership = peer_membership_result.scalar_one()
+    members = members_result.all()
+    peer_membership = next(
+        (member for member_user, member in members if peer and member_user.id == peer.id),
+        None,
+    )
 
     unread_conditions = [
         Message.chat_id == chat.id,
@@ -127,11 +129,13 @@ async def build_chat_response(
     return ChatResponse(
         id=chat.id,
         type=chat.type,
-        peer=UserResponse.model_validate(peer),
+        peer=UserResponse.model_validate(peer) if peer else None,
+        name=chat.name,
+        members=[UserResponse.model_validate(member_user) for member_user, _ in members],
         created_at=chat.created_at,
         last_message=last_message_response,
         unread_count=unread_count,
-        peer_last_read_at=peer_membership.last_read_at,
+        peer_last_read_at=peer_membership.last_read_at if peer_membership else None,
     )
 
 
@@ -255,46 +259,19 @@ async def get_chats(
     ],
     db: AsyncSession = Depends(get_db),
 ):
-    own_membership = aliased(ChatMember)
-    peer_membership = aliased(ChatMember)
-
-    query = (
-        select(
-            Chat,
-            User,
-        )
-        .join(
-            own_membership,
-            own_membership.chat_id == Chat.id,
-        )
-        .join(
-            peer_membership,
-            peer_membership.chat_id == Chat.id,
-        )
-        .join(
-            User,
-            User.id == peer_membership.user_id,
-        )
-        .where(
-            Chat.type == "private",
-            own_membership.user_id == current_user.id,
-            peer_membership.user_id != current_user.id,
-        )
+    result = await db.execute(
+        select(Chat).join(ChatMember, ChatMember.chat_id == Chat.id)
+        .where(ChatMember.user_id == current_user.id)
     )
-
-    result = await db.execute(query)
-
     chats = []
-
-    for chat, peer in result.all():
-        chat_response = await build_chat_response(
-            db,
-            chat,
-            peer,
-            current_user.id,
-        )
-
-        chats.append(chat_response)
+    for chat in result.scalars().all():
+        peer = None
+        if chat.type == "private":
+            peer = await db.scalar(
+                select(User).join(ChatMember, ChatMember.user_id == User.id)
+                .where(ChatMember.chat_id == chat.id, ChatMember.user_id != current_user.id)
+            )
+        chats.append(await build_chat_response(db, chat, peer, current_user.id))
 
     chats.sort(
         key=lambda chat: (
@@ -372,3 +349,25 @@ async def mark_chat_read(
     return Response(
         status_code=status.HTTP_204_NO_CONTENT
     )
+
+@router.post("/group", response_model=ChatResponse, status_code=status.HTTP_201_CREATED)
+async def create_group_chat(
+    data: GroupCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    invited_ids = set(data.member_ids) - {current_user.id}
+    if len(invited_ids) < 2:
+        raise HTTPException(status_code=422, detail="Select at least two other participants")
+    users = (await db.scalars(select(User).where(User.id.in_(invited_ids)))).all()
+    if len(users) != len(invited_ids):
+        raise HTTPException(status_code=404, detail="One or more users were not found")
+    chat = Chat(type="group", name=data.name)
+    db.add(chat)
+    await db.flush()
+    member_ids = invited_ids | {current_user.id}
+    db.add_all([ChatMember(chat_id=chat.id, user_id=user_id) for user_id in member_ids])
+    await db.commit()
+    await db.refresh(chat)
+    await manager.send_to_users(list(member_ids), {"type": "chat.created", "chat_id": str(chat.id)})
+    return await build_chat_response(db, chat, None, current_user.id)

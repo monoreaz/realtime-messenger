@@ -57,6 +57,7 @@ class ReplyMessageResponse(BaseModel):
     sender_id: uuid.UUID
     content: str
     image_url: str | None = None
+    video_url: str | None = None
 
 
 class MessageResponse(BaseModel):
@@ -66,6 +67,7 @@ class MessageResponse(BaseModel):
     sender_id: uuid.UUID
     content: str
     image_url: str | None = None
+    video_url: str | None = None
     created_at: datetime
     reply_to_message_id: uuid.UUID | None = None
     reply_to_message: ReplyMessageResponse | None = None

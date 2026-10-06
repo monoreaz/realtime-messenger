@@ -32,6 +32,7 @@ import {
     getPinnedMessages,
     pinMessage,
     unpinMessage,
+    sendVideoMessage,
     type SessionInfo,
     type Chat,
     type Message,
@@ -39,11 +40,12 @@ import {
 } from "./api";
 
 import "./App.css";
-import { useAudioCall } from "./useAudioCall";
-import { AudioCallDialog } from "./AudioCallDialog";
+import { GroupDialog } from "./GroupDialog";
 import { CallMessage } from "./CallMessage";
+import { AudioCallDialog } from "./AudioCallDialog";
 import { PinnedMessagesDialog } from "./PinnedMessagesDialog";
 import { selectPinnedMessage } from "./pinnedMessages";
+import { useAudioCall } from "./useAudioCall";
 
 
 type AuthMode = "login" | "register" | "forgot" | "reset" | "resend";
@@ -71,7 +73,7 @@ function sortChats(chats: Chat[]): Chat[] {
 
 function getVisibleChats(chats: Chat[]): Chat[] {
     return sortChats(
-        chats.filter((chat) => chat.last_message !== null),
+        chats.filter((chat) => chat.type === "group" || chat.last_message !== null),
     );
 }
 
@@ -252,6 +254,9 @@ function App() {
     const [selectedImage, setSelectedImage] = useState<File | null>(null);
     const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null);
 
+    const [selectedVideo, setSelectedVideo] = useState<File | null>(null);
+    const [selectedVideoPreview, setSelectedVideoPreview] = useState<string | null>(null);
+
     const [imageViewerUrl, setImageViewerUrl] = useState<string | null>(null);
 
     const [imageViewerScale, setImageViewerScale] = useState(1);
@@ -286,6 +291,7 @@ function App() {
     const messageInputRef = useRef<HTMLInputElement | null>(null);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
 
+
     const [authLoading, setAuthLoading] = useState(false);
     const [appLoading, setAppLoading] = useState(true);
     const [messagesLoading, setMessagesLoading] = useState(false);
@@ -309,6 +315,8 @@ function App() {
     );
 
     const [profileOpen, setProfileOpen] = useState(false);
+    const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+    const [groupMembersOpen, setGroupMembersOpen] = useState(false);
     const [peerProfileOpen, setPeerProfileOpen] = useState(false);
 
     const [settingsTab, setSettingsTab] = useState<SettingsTab>("profile");
@@ -615,6 +623,15 @@ function App() {
 
 
     useEffect(() => {
+        return () => {
+            if (selectedVideoPreview) {
+                URL.revokeObjectURL(selectedVideoPreview);
+            }
+        };
+    }, [selectedVideoPreview]);
+
+
+    useEffect(() => {
     if (!contextMenu) {
         return;
     }
@@ -689,6 +706,55 @@ function App() {
     function openImageViewer(url: string) {
         setImageViewerUrl(url);
         resetImageViewerTransform();
+    }
+
+
+    async function openVideoFullscreen(video: HTMLVideoElement) {
+        const webkitVideo = video as HTMLVideoElement & {
+            webkitEnterFullscreen?: () => void;
+        };
+
+        const hideInlineControls = () => {
+            video.controls = false;
+        };
+
+        video.controls = true;
+
+        try {
+            if (video.requestFullscreen) {
+                await video.requestFullscreen();
+
+                const handleFullscreenChange = () => {
+                    if (document.fullscreenElement !== video) {
+                        hideInlineControls();
+                        document.removeEventListener(
+                            "fullscreenchange",
+                            handleFullscreenChange,
+                        );
+                    }
+                };
+
+                document.addEventListener(
+                    "fullscreenchange",
+                    handleFullscreenChange,
+                );
+            } else if (webkitVideo.webkitEnterFullscreen) {
+                video.addEventListener(
+                    "webkitendfullscreen",
+                    hideInlineControls,
+                    { once: true },
+                );
+
+                webkitVideo.webkitEnterFullscreen();
+            } else {
+                hideInlineControls();
+                return;
+            }
+
+            void video.play().catch(() => undefined);
+        } catch {
+            hideInlineControls();
+        }
     }
 
 
@@ -1172,10 +1238,16 @@ function App() {
                 return;
             }
 
+            if (data.type === "chat.created") {
+                void getChats(token).then(items => setChats(getVisibleChats(items)))
+                    .catch(() => setError("Could not refresh chats"));
+                return;
+            }
+
             if (data.type === "chat.read") {
                 setChats((currentChats) =>
                     currentChats.map((chat) =>
-                        chat.id === data.chat_id
+                        chat.id === data.chat_id && chat.type === "private"
                             ? {
                                   ...chat,
                                   peer_last_read_at: data.read_at,
@@ -1187,7 +1259,7 @@ function App() {
                 setActiveChat((currentChat) => {
                     if (
                         !currentChat ||
-                        currentChat.id !== data.chat_id
+                        currentChat.id !== data.chat_id || currentChat.type !== "private"
                     ) {
                         return currentChat;
                     }
@@ -1204,30 +1276,13 @@ function App() {
             if (data.type === "profile.updated") {
                 const updatedUser = data.user as User;
 
-                setChats((currentChats) =>
-                    currentChats.map((chat) =>
-                        chat.peer.id === updatedUser.id
-                            ? {
-                                  ...chat,
-                                  peer: updatedUser,
-                              }
-                            : chat,
-                    ),
-                );
-
-                setActiveChat((currentChat) => {
-                    if (
-                        !currentChat ||
-                        currentChat.peer.id !== updatedUser.id
-                    ) {
-                        return currentChat;
-                    }
-
-                    return {
-                        ...currentChat,
-                        peer: updatedUser,
-                    };
+                const updateChatUser = (chat: Chat): Chat => ({
+                    ...chat,
+                    peer: chat.peer?.id === updatedUser.id ? updatedUser : chat.peer,
+                    members: chat.members.map(member => member.id === updatedUser.id ? updatedUser : member),
                 });
+                setChats(items => items.map(updateChatUser));
+                setActiveChat(chat => chat ? updateChatUser(chat) : null);
 
                 setDraftPeer((currentPeer) =>
                     currentPeer?.id === updatedUser.id
@@ -1346,6 +1401,7 @@ function App() {
                                 sender_id: incomingMessage.sender_id,
                                 content: incomingMessage.content,
                                 image_url: incomingMessage.image_url,
+                                video_url: incomingMessage.video_url,
                                 created_at: incomingMessage.created_at,
                             },
                             unread_count: shouldIncreaseUnread
@@ -1379,7 +1435,7 @@ function App() {
                             draftPeerId === incomingMessage.sender_id
                                 ? visibleChats.find(
                                       (chat) =>
-                                          chat.id === incomingMessage.chat_id,
+                                          chat.type === "private" && chat.id === incomingMessage.chat_id,
                                   )
                                 : undefined;
 
@@ -1578,15 +1634,17 @@ function App() {
         setContextMenu(null);
         setDeleteTarget(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setMessageInput("");
         setDraftPeer(null);
         setActiveChat(chat);
         setTypingUserIds(new Set());
 
-        sendWebSocketEvent({
+        if (chat.peer) sendWebSocketEvent({
             type: "presence.get",
             user_id: chat.peer.id,
         });
+        setGroupMembersOpen(false);
 
         scrollToLatestOnOpenRef.current = true;
         setMessagesLoading(true);
@@ -1663,7 +1721,7 @@ function App() {
         setError("");
 
         const existingChat = chats.find(
-            (chat) => chat.peer.id === targetUser.id,
+            (chat) => chat.peer?.id === targetUser.id,
         );
 
         setSearchQuery("");
@@ -1680,6 +1738,7 @@ function App() {
         setContextMenu(null);
         setDeleteTarget(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setMessageInput("");
         setActiveChat(null);
         setDraftPeer(targetUser);
@@ -1721,6 +1780,7 @@ function App() {
     ) {
         setReplyingTo(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setEditingMessage(message);
         setMessageInput(message.content);
         setContextMenu(null);
@@ -1912,6 +1972,35 @@ function App() {
         }
     }
 
+    function clearSelectedVideo() {
+        setSelectedVideo(null);
+        setSelectedVideoPreview(null);
+    }
+
+
+    function selectVideo(file: File) {
+        const allowedTypes = new Set([
+            "video/mp4",
+            "video/webm",
+        ]);
+
+        if (!allowedTypes.has(file.type)) {
+            setError("Video must be MP4 or WebM");
+            return;
+        }
+
+        if (file.size > 50 * 1024 * 1024) {
+            setError("Video must be smaller than 50 MB");
+            return;
+        }
+
+        clearSelectedImage();
+        setError("");
+        setSelectedVideo(file);
+        setSelectedVideoPreview(
+            URL.createObjectURL(file),
+        );
+    }
 
     function selectImage(file: File) {
         const allowedTypes = new Set([
@@ -1930,22 +2019,36 @@ function App() {
             return;
         }
 
+        clearSelectedVideo();
+
         setError("");
         setSelectedImage(file);
         setSelectedImagePreview(URL.createObjectURL(file));
     }
 
 
-    function handleImageSelect(
+    function handleAttachmentSelect(
         event: ChangeEvent<HTMLInputElement>,
     ) {
         const file = event.target.files?.[0];
 
         event.target.value = "";
 
-        if (file) {
-            selectImage(file);
+        if (!file) {
+            return;
         }
+
+        if (file.type.startsWith("image/")) {
+            selectImage(file);
+            return;
+        }
+
+        if (file.type.startsWith("video/")) {
+            selectVideo(file);
+            return;
+        }
+
+        setError("File must be JPEG, PNG, WebP, MP4, or WebM");
     }
 
 
@@ -1992,7 +2095,7 @@ function App() {
 
         const content = messageInput.trim();
 
-        if (!content && !selectedImage) {
+        if (!content && !selectedImage && !selectedVideo) {
             return;
         }
 
@@ -2023,12 +2126,20 @@ function App() {
                       content,
                       replyingTo?.id ?? null,
                   )
-                : await sendMessage(
-                      token,
-                      targetChat.id,
-                      content,
-                      replyingTo?.id ?? null,
-                  );
+                : selectedVideo
+                  ? await sendVideoMessage(
+                        token,
+                        targetChat.id,
+                        selectedVideo,
+                        content,
+                        replyingTo?.id ?? null,
+                    )
+                  : await sendMessage(
+                        token,
+                        targetChat.id,
+                        content,
+                        replyingTo?.id ?? null,
+                    );
 
             if (wasDraft) {
                 setDraftPeer(null);
@@ -2063,6 +2174,7 @@ function App() {
 
             setMessageInput("");
             clearSelectedImage();
+            clearSelectedVideo();
             setReplyingTo(null);
         } catch (caughtError) {
             if (caughtError instanceof Error) {
@@ -2333,6 +2445,7 @@ function App() {
         setContextMenu(null);
         setDeleteTarget(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setMessageInput("");
         setToken(null);
         setUser(null);
@@ -2356,6 +2469,7 @@ function App() {
         setContextMenu(null);
         setDeleteTarget(null);
         clearSelectedImage();
+        clearSelectedVideo();
         setMessageInput("");
         setActiveChat(null);
         setDraftPeer(null);
@@ -2757,10 +2871,15 @@ function App() {
 
 
     const currentPeer = activeChat?.peer ?? draftPeer;
+    const senderName = (senderId: string) => {
+        if (senderId === user.id) return "You";
+        const sender = activeChat?.members.find(member => member.id === senderId) ?? currentPeer;
+        return sender ? getUserDisplayName(sender) : "Participant";
+    };
 
 
     return (
-        <main className={`messenger ${currentPeer ? "chat-open" : ""}`}>
+        <main className={`messenger ${activeChat || currentPeer ? "chat-open" : ""}`}>
             <aside className="sidebar">
                 <header className="sidebar-header">
                     <div className="current-user">
@@ -2783,6 +2902,7 @@ function App() {
                     </div>
 
                     <div className="sidebar-actions">
+                        <button className="settings-button" type="button" onClick={() => setGroupDialogOpen(true)} aria-label="Create group" title="Create group">＋</button>
                         <button className="settings-button" type="button" onClick={openProfileSettings} aria-label="Profile settings">
                             ⚙
                         </button>
@@ -2842,17 +2962,12 @@ function App() {
                     ) : (
                         chats.map((chat) => (
                             <button className={`chat-item ${activeChat?.id === chat.id ? "active" : ""}`} type="button" key={chat.id} onClick={() => void openChat(chat)}>
-                                <UserAvatar
-                                    user={chat.peer}
-                                    className="chat-avatar"
-                                />
+                                {chat.peer ? <UserAvatar user={chat.peer} className="chat-avatar" /> : <div className="chat-avatar group-avatar" aria-hidden="true">👥</div>}
 
                                 <div className="chat-info">
                                     <div className="chat-title-row">
                                         <strong>
-                                            {getUserDisplayName(
-                                                chat.peer,
-                                            )}
+                                            {chat.type === "group" ? chat.name : chat.peer ? getUserDisplayName(chat.peer) : "Chat"}
                                         </strong>
 
                                         {chat.last_message && (
@@ -2875,7 +2990,9 @@ function App() {
                                                       chat.last_message.content ||
                                                       (chat.last_message.image_url
                                                           ? "Photo"
-                                                          : "Message")
+                                                          : chat.last_message.video_url
+                                                            ? "Video"
+                                                            : "Message")
                                                   }`
                                                 : "No messages yet"}
                                         </span>
@@ -2895,16 +3012,30 @@ function App() {
                 </div>
             </aside>
 
+            {groupDialogOpen && token && <GroupDialog token={token} currentUserId={user.id} chats={chats} onClose={() => setGroupDialogOpen(false)} onCreated={chat => {
+                setGroupDialogOpen(false);
+                setChats(items => sortChats([chat, ...items.filter(item => item.id !== chat.id)]));
+                void openChat(chat);
+            }} />}
             {audioCall.error && !audioCall.call && <div className="call-notice" role="status">{audioCall.error} <button onClick={audioCall.play}>Enable audio</button><button onClick={audioCall.dismissError} aria-label="Close">×</button></div>}
             {audioCall.call && <AudioCallDialog name={audioCall.call.name} phase={audioCall.call.phase} elapsedSeconds={audioCall.elapsedSeconds} muted={audioCall.muted} onAccept={() => void audioCall.accept()} onEnd={() => audioCall.end()} onToggleMute={audioCall.toggleMute} error={audioCall.error} onPlayAudio={audioCall.play} />}
             <section className="chat-panel">
-                {currentPeer ? (
+                {activeChat || currentPeer ? (
                     <>
                         <header className="chat-header">
                             <button className="mobile-back-button" type="button" onClick={closeChat} aria-label="Back to chats">
                                 ←
                             </button>
 
+                            {activeChat?.type === "group" ? <>
+                                <div className="chat-avatar group-avatar" aria-hidden="true">👥</div>
+                                <div className="chat-peer-info">
+                                    <button className="peer-profile-trigger" type="button" onClick={() => setGroupMembersOpen(open => !open)} aria-expanded={groupMembersOpen}>
+                                        {activeChat.name}
+                                    </button>
+                                    <span className="peer-status">{typingUserIds.size ? "Someone is typing..." : `${activeChat.members.length} participants`}</span>
+                                </div>
+                            </> : currentPeer && <>
                             <UserAvatar
                                 user={currentPeer}
                                 className="chat-avatar"
@@ -2954,7 +3085,13 @@ function App() {
                             }}>
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L9 10.9a16 16 0 0 0 4.1 4.1l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 2.7 3Z"/></svg>
                             </button>
+                            </>}
                         </header>
+                        {activeChat?.type === "group" && groupMembersOpen && (
+                            <div className="group-members" aria-label="Group participants">
+                                {activeChat.members.map(member => <div key={member.id}><UserAvatar user={member} className="small-avatar" /><span>{getUserDisplayName(member)}{member.id === user.id ? " (you)" : ""}<small>@{member.username}</small></span></div>)}
+                            </div>
+                        )}
                         {displayedPin && (
                             <div className="pinned-message-toolbar">
                                 <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(displayedPin.id)}>
@@ -3001,6 +3138,10 @@ function App() {
 
                                     const imageUrl = getMediaUrl(
                                         message.image_url,
+                                    );
+
+                                    const videoUrl = getMediaUrl(
+                                        message.video_url,
                                     );
 
                                     if (message.deleted_at !== null) {
@@ -3055,7 +3196,14 @@ function App() {
                                                     )
                                                 }
                                             >
-                                                <div className={`message-bubble ${message.is_call ? "call-message-bubble" : ""} ${imageUrl ? "media-message" : ""}`}>
+                                                <div
+                                                    className={`message-bubble ${message.is_call ? "call-message-bubble" : ""} ${
+                                                        imageUrl || videoUrl
+                                                            ? "media-message"
+                                                            : ""
+                                                    }`}
+                                                >
+                                                    {activeChat?.type === "group" && !isOwnMessage && <strong className="group-message-author">{senderName(message.sender_id)}</strong>}
                                                     {message.reply_to_message && (
                                                         <button
                                                             className="message-reply"
@@ -3067,73 +3215,126 @@ function App() {
                                                                 {message.reply_to_message.sender_id ===
                                                                 user.id
                                                                     ? "You"
-                                                                    : getUserDisplayName(
-                                                                          currentPeer,
-                                                                      )}
+                                                                    : senderName(message.reply_to_message.sender_id)}
                                                             </strong>
 
                                                             <span>
                                                                 {message.reply_to_message.content ||
                                                                     (message.reply_to_message.image_url
                                                                         ? "Photo"
-                                                                        : "Message")}
+                                                                        : message.reply_to_message.video_url
+                                                                          ? "Video"
+                                                                          : "Message")}
                                                             </span>
                                                         </button>
                                                     )}
 
-                                                    {imageUrl ? (
-                                                        <div className="message-media">
-                                                            <button
-                                                                className="message-image-button"
-                                                                type="button"
-                                                                onClick={(event) => {
-                                                                    event.stopPropagation();
-                                                                    openImageViewer(imageUrl);
-                                                                }}
-                                                                aria-label="Open image"
-                                                            >
-                                                                <img
-                                                                    className="message-image"
-                                                                    src={imageUrl}
-                                                                    alt="Sent attachment"
-                                                                    loading="lazy"
+                                                    {(imageUrl || videoUrl) && (
+                                                        <div
+                                                            className={`message-media ${
+                                                                videoUrl ? "video" : "image"
+                                                            }`}
+                                                        >
+                                                            {imageUrl && (
+                                                                <button
+                                                                    className="message-image-button"
+                                                                    type="button"
+                                                                    onClick={(event) => {
+                                                                        event.stopPropagation();
+                                                                        openImageViewer(imageUrl);
+                                                                    }}
+                                                                    aria-label="Open image"
+                                                                >
+                                                                    <img
+                                                                        className="message-image"
+                                                                        src={imageUrl}
+                                                                        alt="Sent attachment"
+                                                                        loading="lazy"
+                                                                    />
+                                                                </button>
+                                                            )}
+
+                                                            {videoUrl && (
+                                                                <video
+                                                                    className="message-video"
+                                                                    src={videoUrl}
+                                                                    preload="metadata"
+                                                                    playsInline
+                                                                    onClick={(event) => {
+                                                                        event.stopPropagation();
+                                                                        void openVideoFullscreen(
+                                                                            event.currentTarget,
+                                                                        );
+                                                                    }}
+                                                                    aria-label="Open video fullscreen"
                                                                 />
-                                                            </button>
+                                                            )}
+
                                                             {message.content && (
                                                                 <div className="message-caption">
                                                                     {message.content}
                                                                 </div>
                                                             )}
-                                                        </div>
-                                                    ) : message.content && (
-                                                        message.is_call ? <CallMessage content={message.content} outgoing={isOwnMessage} /> :
-                                                        <div className="message-content">
-                                                            {message.content}
+
+                                                            <div className={`message-media-meta ${message.content ? "with-caption" : ""}`}>
+                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message">📌</span>}
+                                                                {message.edited_at && (
+                                                                    <span>edited</span>
+                                                                )}
+
+                                                                <span>
+                                                                    {formatTime(
+                                                                        message.created_at,
+                                                                    )}
+                                                                </span>
+
+                                                                {isOwnMessage && (
+                                                                    <span
+                                                                        className={`message-receipt ${
+                                                                            isRead ? "read" : ""
+                                                                        }`}
+                                                                        title={isRead ? "Read" : "Sent"}
+                                                                    >
+                                                                        {isRead ? "✓✓" : "✓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     )}
 
-                                                    <div className="message-meta">
-                                                        {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message">📌</span>}
-                                                        {message.edited_at && (
-                                                            <span className="message-edited">
-                                                                edited
-                                                            </span>
-                                                        )}
+                                                    {message.content && !imageUrl && !videoUrl && (
+                                                        message.is_call
+                                                            ? <CallMessage content={message.content} outgoing={isOwnMessage} />
+                                                            : <div className="message-content">{message.content}</div>
+                                                    )}
 
-                                                        <span className="message-time">
-                                                            {formatTime(
-                                                                message.created_at,
+                                                    {!imageUrl && !videoUrl && (
+                                                        <div className="message-meta">
+                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message">📌</span>}
+                                                            {message.edited_at && (
+                                                                <span className="message-edited">
+                                                                    edited
+                                                                </span>
                                                             )}
-                                                        </span>
 
-                                                        {isOwnMessage && (
-                                                            <span className={`message-receipt ${isRead ? "read" : ""}`} title={isRead ? "Read" : "Sent"}>
-                                                                {isRead
-                                                                    ? "✓✓"
-                                                                    : "✓"}
+                                                            <span className="message-time">
+                                                                {formatTime(
+                                                                    message.created_at,
+                                                                )}
                                                             </span>
-                                                        )}
-                                                    </div>
+
+                                                            {isOwnMessage && (
+                                                                <span
+                                                                    className={`message-receipt ${
+                                                                        isRead ? "read" : ""
+                                                                    }`}
+                                                                    title={isRead ? "Read" : "Sent"}
+                                                                >
+                                                                    {isRead ? "✓✓" : "✓"}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </Fragment>
@@ -3192,16 +3393,16 @@ function App() {
                                             Replying to{" "}
                                             {replyingTo.sender_id === user.id
                                                 ? "yourself"
-                                                : getUserDisplayName(
-                                                      currentPeer,
-                                                  )}
+                                                : senderName(replyingTo.sender_id)}
                                         </strong>
 
                                         <span>
                                             {replyingTo.content ||
                                                 (replyingTo.image_url
                                                     ? "Photo"
-                                                    : "Message")}
+                                                    : replyingTo.video_url
+                                                      ? "Video"
+                                                      : "Message")}
                                         </span>
                                     </div>
 
@@ -3239,6 +3440,35 @@ function App() {
                                 </div>
                             )}
 
+                            {selectedVideo && selectedVideoPreview && (
+                                <div className="selected-image-preview selected-video-preview">
+                                    <div className="selected-video-thumbnail">
+                                        <video
+                                            src={selectedVideoPreview}
+                                            preload="metadata"
+                                            muted
+                                            playsInline
+                                        />
+                                        <span aria-hidden="true">▶</span>
+                                    </div>
+
+                                    <div className="selected-image-info">
+                                        <strong>{selectedVideo.name}</strong>
+                                        <span>
+                                            {(selectedVideo.size / 1024 / 1024).toFixed(1)} MB · Video
+                                        </span>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={clearSelectedVideo}
+                                        aria-label="Remove selected video"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            )}
+
                             <form
                                 className="message-form"
                                 onSubmit={handleSendMessage}
@@ -3247,14 +3477,14 @@ function App() {
                                 {!editingMessage && (
                                     <label
                                         className="attachment-button"
-                                        title="Attach photo"
+                                        title="Attach photo or video"
                                     >
                                         📎
                                         <input
                                             ref={imageInputRef}
                                             type="file"
-                                            accept="image/jpeg,image/png,image/webp"
-                                            onChange={handleImageSelect}
+                                            accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+                                            onChange={handleAttachmentSelect}
                                             disabled={sending}
                                             hidden
                                         />
@@ -3267,7 +3497,7 @@ function App() {
                                     placeholder={
                                         editingMessage
                                             ? "Edit message..."
-                                            : selectedImage
+                                            : selectedImage || selectedVideo
                                               ? "Add a caption..."
                                               : replyingTo
                                                 ? "Write a reply..."
@@ -3286,7 +3516,9 @@ function App() {
                                             ? messageActionLoading === editingMessage.id ||
                                               !messageInput.trim()
                                             : sending ||
-                                              (!messageInput.trim() && !selectedImage)
+                                              (!messageInput.trim() &&
+                                                  !selectedImage &&
+                                                  !selectedVideo)
                                     }
                                 >
                                     ➤

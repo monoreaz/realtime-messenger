@@ -52,6 +52,14 @@ ALLOWED_MESSAGE_IMAGE_TYPES = {
 
 MAX_MESSAGE_IMAGE_SIZE = 10 * 1024 * 1024
 
+ALLOWED_MESSAGE_VIDEO_TYPES = {
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+}
+
+MAX_MESSAGE_VIDEO_SIZE = 50 * 1024 * 1024
+
+
 async def check_chat_membership(
     db: AsyncSession,
     chat_id: uuid.UUID,
@@ -127,6 +135,7 @@ def build_message_response(
             sender_id=replied_message.sender_id,
             content=replied_message.content,
             image_url=replied_message.image_url,
+            video_url=replied_message.video_url,
         )
 
     return MessageResponse(
@@ -137,6 +146,7 @@ def build_message_response(
         sender_id=message.sender_id,
         content=message.content,
         image_url=message.image_url,
+        video_url=message.video_url,
         created_at=message.created_at,
         edited_at=message.edited_at,
         deleted_at=message.deleted_at,
@@ -237,6 +247,7 @@ async def send_message(
         sender_id=current_user.id,
         content=message_data.content,
         image_url=None,
+        video_url=None,
         reply_to_message_id=(
             replied_message.id
             if replied_message
@@ -348,6 +359,7 @@ async def send_image_message(
         sender_id=current_user.id,
         content=caption,
         image_url=image_url,
+        video_url=None,
         reply_to_message_id=(
             replied_message.id
             if replied_message
@@ -367,6 +379,131 @@ async def send_image_message(
             image_path.unlink(
                 missing_ok=True
             )
+        except OSError:
+            pass
+
+        raise
+
+    message_response = build_message_response(
+        message,
+        replied_message,
+    )
+
+    await broadcast_message(
+        db,
+        chat_id,
+        message_response,
+    )
+
+    return message_response
+
+@router.post(
+    "/{chat_id}/messages/video",
+    response_model=MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def send_video_message(
+    chat_id: uuid.UUID,
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    file: UploadFile = File(...),
+    caption: str = Form(""),
+    reply_to_message_id: uuid.UUID | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+):
+    await check_chat_membership(
+        db,
+        chat_id,
+        current_user.id,
+    )
+
+    extension = ALLOWED_MESSAGE_VIDEO_TYPES.get(
+        file.content_type or ""
+    )
+
+    if extension is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Video must be MP4 or WebM",
+        )
+
+    caption = caption.strip()
+
+    if len(caption) > 4000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Caption must be 4000 characters or less",
+        )
+
+    replied_message = await get_replied_message(
+        db,
+        chat_id,
+        reply_to_message_id,
+    )
+
+    MESSAGE_IMAGE_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    filename = (
+        f"{chat_id}-"
+        f"{uuid.uuid4().hex}"
+        f"{extension}"
+    )
+
+    video_path = MESSAGE_IMAGE_DIR / filename
+
+    total_size = 0
+
+    try:
+        with video_path.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                total_size += len(chunk)
+
+                if total_size > MAX_MESSAGE_VIDEO_SIZE:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail="Video must be smaller than 50 MB",
+                    )
+
+                output.write(chunk)
+
+        if total_size == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Video file is empty",
+            )
+
+        video_url = f"/uploads/messages/{filename}"
+
+        message = Message(
+            chat_id=chat_id,
+            sender_id=current_user.id,
+            content=caption,
+            image_url=None,
+            video_url=video_url,
+            reply_to_message_id=(
+                replied_message.id
+                if replied_message
+                else None
+            ),
+        )
+
+        db.add(message)
+
+        try:
+            await db.commit()
+            await db.refresh(message)
+        except Exception:
+            await db.rollback()
+            raise
+
+    except Exception:
+        try:
+            video_path.unlink(missing_ok=True)
         except OSError:
             pass
 
@@ -595,6 +732,7 @@ async def delete_message(
 
     message.content = ""
     message.image_url = None
+    message.video_url = None
     message.pinned_at = None
     message.pinned_by_id = None
     message.deleted_at = datetime.now(timezone.utc)

@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from app.core.security import decode_access_token
 from app.database import AsyncSessionLocal
-from app.models.chat import ChatMember
+from app.models.chat import Chat, ChatMember
 from app.models.user import User
 from app.realtime.manager import manager
 
@@ -335,7 +335,15 @@ async def handle_call_signal(websocket: WebSocket, user: User, data: dict) -> No
             return
     call = active_calls.get(call_id)
     if event == "call.offer":
-        if call or peer_id not in await get_peer_user_ids(user.id):
+        if call:
+            return
+        # Sharing a group does not authorize a private audio call.
+        direct_key = ":".join(sorted([str(user.id), str(peer_id)]))
+        async with AsyncSessionLocal() as db:
+            private_chat = await db.scalar(select(Chat.id).where(
+                Chat.type == "private", Chat.direct_key == direct_key,
+            ))
+        if private_chat is None:
             return
         reason = "offline" if not manager.is_online(peer_id) else None
         if any(user.id in item[:2] or peer_id in item[:2] for item in active_calls.values()):
