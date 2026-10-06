@@ -40,6 +40,7 @@ import {
 } from "./api";
 
 import "./App.css";
+import { GroupProfileDialog } from "./GroupProfileDialog";
 import { GroupDialog } from "./GroupDialog";
 import { CallMessage } from "./CallMessage";
 import { AudioCallDialog } from "./AudioCallDialog";
@@ -1238,8 +1239,12 @@ function App() {
                 return;
             }
 
-            if (data.type === "chat.created") {
-                void getChats(token).then(items => setChats(getVisibleChats(items)))
+            if (data.type === "chat.created" || data.type === "chat.updated") {
+                void getChats(token).then(items => {
+                    setChats(getVisibleChats(items));
+                    setActiveChat(current => current && current.id === data.chat_id
+                        ? items.find(item => item.id === current.id) ?? current : current);
+                })
                     .catch(() => setError("Could not refresh chats"));
                 return;
             }
@@ -1279,7 +1284,7 @@ function App() {
                 const updateChatUser = (chat: Chat): Chat => ({
                     ...chat,
                     peer: chat.peer?.id === updatedUser.id ? updatedUser : chat.peer,
-                    members: chat.members.map(member => member.id === updatedUser.id ? updatedUser : member),
+                    members: chat.members.map(member => member.id === updatedUser.id ? { ...member, ...updatedUser } : member),
                 });
                 setChats(items => items.map(updateChatUser));
                 setActiveChat(chat => chat ? updateChatUser(chat) : null);
@@ -3030,7 +3035,7 @@ function App() {
                             {activeChat?.type === "group" ? <>
                                 <div className="chat-avatar group-avatar" aria-hidden="true">👥</div>
                                 <div className="chat-peer-info">
-                                    <button className="peer-profile-trigger" type="button" onClick={() => setGroupMembersOpen(open => !open)} aria-expanded={groupMembersOpen}>
+                                    <button className="peer-profile-trigger" type="button" onClick={() => setGroupMembersOpen(true)} aria-haspopup="dialog" aria-label="Open group profile">
                                         {activeChat.name}
                                     </button>
                                     <span className="peer-status">{typingUserIds.size ? "Someone is typing..." : `${activeChat.members.length} participants`}</span>
@@ -3087,10 +3092,12 @@ function App() {
                             </button>
                             </>}
                         </header>
-                        {activeChat?.type === "group" && groupMembersOpen && (
-                            <div className="group-members" aria-label="Group participants">
-                                {activeChat.members.map(member => <div key={member.id}><UserAvatar user={member} className="small-avatar" /><span>{getUserDisplayName(member)}{member.id === user.id ? " (you)" : ""}<small>@{member.username}</small></span></div>)}
-                            </div>
+                        {activeChat?.type === "group" && groupMembersOpen && token && (
+                            <GroupProfileDialog key={activeChat.id} chat={activeChat} token={token} currentUserId={user.id}
+                                onClose={() => setGroupMembersOpen(false)} onUpdated={updated => {
+                                    setChats(items => items.map(item => item.id === updated.id ? updated : item));
+                                    setActiveChat(current => current?.id === updated.id ? updated : current);
+                                }} />
                         )}
                         {displayedPin && (
                             <div className="pinned-message-toolbar">

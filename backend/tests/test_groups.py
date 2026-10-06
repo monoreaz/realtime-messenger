@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.database import DATABASE_URL
 from app.models.user import User
-from app.api.chats import create_group_chat, create_private_chat, get_chats, mark_chat_read
+from app.api.chats import create_group_chat, create_private_chat, get_chats, mark_chat_read, update_group
 from app.api.messages import send_message, check_chat_membership
-from app.schemas.chat import GroupCreate
+from app.schemas.chat import GroupCreate, GroupDetails
 from app.schemas.message import MessageCreate
 
 
@@ -89,3 +89,45 @@ class GroupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(chat.peer.id, self.users[1].id)
         chats = await get_chats(self.users[0], self.db)
         self.assertEqual(len(chats), 2)
+
+
+    async def test_creator_is_group_admin_and_can_edit_profile(self):
+        group = await self.make_group()
+        self.assertEqual(next(member for member in group.members if member.id == self.users[0].id).group_role, "admin")
+        self.assertTrue(all(member.group_role == "member" for member in group.members if member.id != self.users[0].id))
+        username = "group_" + uuid.uuid4().hex[:16]
+        updated = await update_group(group.id, GroupDetails(name="  Updated team  ",
+            username="@" + username.upper(), description="  Team description  "), self.users[0], self.db)
+        self.assertEqual(updated.name, "Updated team")
+        self.assertEqual(updated.username, username)
+        self.assertEqual(updated.description, "Team description")
+        recipients, event = self.broadcast.call_args.args
+        self.assertEqual(set(recipients), {user.id for user in self.users[:3]})
+        self.assertEqual(event["type"], "chat.updated")
+        visible = next(chat for chat in await get_chats(self.users[1], self.db) if chat.id == group.id)
+        self.assertEqual(visible.username, username)
+        self.assertEqual(visible.description, "Team description")
+
+    async def test_members_and_outsiders_cannot_edit_group(self):
+        group = await self.make_group()
+        for user, code in ((self.users[1], 403), (self.users[3], 404)):
+            with self.assertRaises(HTTPException) as error:
+                await update_group(group.id, GroupDetails(name="Unauthorized"), user, self.db)
+            self.assertEqual(error.exception.status_code, code)
+
+    async def test_group_username_unique_and_profile_validation(self):
+        username = "group_" + uuid.uuid4().hex[:16]
+        data = GroupCreate(name="Named group", username=username, member_ids=[user.id for user in self.users[1:3]])
+        group = await create_group_chat(data, self.users[0], self.db)
+        self.assertEqual(group.username, username)
+        with self.assertRaises(HTTPException) as error:
+            await create_group_chat(data, self.users[0], self.db)
+        self.assertEqual(error.exception.status_code, 409)
+        for username in ("ab", "bad name", "with-dash", "x" * 33):
+            with self.assertRaises(ValidationError):
+                GroupDetails(name="Group", username=username)
+        with self.assertRaises(ValidationError):
+            GroupDetails(name="Group", description="x" * 501)
+        empty = GroupDetails(name="Group", username=" ", description=" ")
+        self.assertIsNone(empty.username)
+        self.assertIsNone(empty.description)

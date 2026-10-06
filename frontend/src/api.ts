@@ -29,7 +29,9 @@ export interface Chat {
     type: string;
     peer: User | null;
     name: string | null;
-    members: User[];
+    username: string | null;
+    description: string | null;
+    members: (User & { group_role: "admin" | "member" })[];
     created_at: string;
     last_message: LastMessage | null;
     unread_count: number;
@@ -961,12 +963,22 @@ export async function logoutOtherSessions(
 
 
 
-export async function createGroupChat(token: string, name: string, memberIds: string[]): Promise<Chat> {
+export async function createGroupChat(token: string, name: string, memberIds: string[], username = "", description = ""): Promise<Chat> {
     const response = await fetch(`${API_BASE_URL}/chats/group`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ name, member_ids: memberIds }),
+        body: JSON.stringify({ name, member_ids: memberIds, username: username || null, description: description || null }),
     });
     if (!response.ok) throw new Error(await getErrorMessage(response, "Could not create group"));
+    return response.json();
+}
+
+export async function updateGroupProfile(token: string, chatId: string, data: { name: string; username: string | null; description: string | null }): Promise<Chat> {
+    const response = await fetch(`${API_BASE_URL}/chats/${chatId}/group`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not update group"));
     return response.json();
 }

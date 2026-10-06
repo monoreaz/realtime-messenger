@@ -18,7 +18,7 @@ from app.database import get_db
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message
 from app.models.user import User
-from app.schemas.chat import ChatResponse, LastMessageResponse, GroupCreate
+from app.schemas.chat import ChatResponse, LastMessageResponse, GroupCreate, GroupDetails, ChatMemberResponse
 from app.schemas.user import UserResponse
 from app.realtime.manager import manager
 
@@ -131,7 +131,10 @@ async def build_chat_response(
         type=chat.type,
         peer=UserResponse.model_validate(peer) if peer else None,
         name=chat.name,
-        members=[UserResponse.model_validate(member_user) for member_user, _ in members],
+        username=chat.username,
+        description=chat.description,
+        members=[ChatMemberResponse(**UserResponse.model_validate(member_user).model_dump(), group_role=member.group_role)
+                 for member_user, member in members],
         created_at=chat.created_at,
         last_message=last_message_response,
         unread_count=unread_count,
@@ -362,12 +365,44 @@ async def create_group_chat(
     users = (await db.scalars(select(User).where(User.id.in_(invited_ids)))).all()
     if len(users) != len(invited_ids):
         raise HTTPException(status_code=404, detail="One or more users were not found")
-    chat = Chat(type="group", name=data.name)
+    chat = Chat(type="group", name=data.name, username=data.username, description=data.description)
     db.add(chat)
-    await db.flush()
-    member_ids = invited_ids | {current_user.id}
-    db.add_all([ChatMember(chat_id=chat.id, user_id=user_id) for user_id in member_ids])
-    await db.commit()
+    try:
+        await db.flush()
+        member_ids = invited_ids | {current_user.id}
+        db.add_all([ChatMember(chat_id=chat.id, user_id=user_id,
+            group_role="admin" if user_id == current_user.id else "member") for user_id in member_ids])
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="This group username is already taken")
     await db.refresh(chat)
     await manager.send_to_users(list(member_ids), {"type": "chat.created", "chat_id": str(chat.id)})
+    return await build_chat_response(db, chat, None, current_user.id)
+
+
+@router.patch("/{chat_id}/group", response_model=ChatResponse)
+async def update_group(
+    chat_id: uuid.UUID,
+    data: GroupDetails,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    membership = await db.get(ChatMember, (chat_id, current_user.id))
+    chat = await db.get(Chat, chat_id)
+    if membership is None or chat is None or chat.type != "group":
+        raise HTTPException(status_code=404, detail="Group not found")
+    if membership.group_role != "admin":
+        raise HTTPException(status_code=403, detail="Only group administrators can edit group details")
+    chat.name = data.name
+    chat.username = data.username
+    chat.description = data.description
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="This group username is already taken")
+    await db.refresh(chat)
+    member_ids = (await db.scalars(select(ChatMember.user_id).where(ChatMember.chat_id == chat.id))).all()
+    await manager.send_to_users(list(member_ids), {"type": "chat.updated", "chat_id": str(chat.id)})
     return await build_chat_response(db, chat, None, current_user.id)

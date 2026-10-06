@@ -1,0 +1,44 @@
+.group-profile-dialog { width: min(460px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 0; border: 1px solid #354657; border-radius: 18px; background: #17212b; color: #fff; box-shadow: 0 24px 80px #0008; color-scheme: dark; }
+.group-profile-dialog::backdrop { background: #0009; }
+.group-profile-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; background: #17212b; border-bottom: 1px solid #253341; }
+.group-profile-header h2 { margin: 0; font-size: 19px; }
+.group-profile-header button { width: 36px; height: 36px; border: 0; border-radius: 50%; background: #253341; color: #fff; font-size: 25px; }
+.group-profile-hero { display: flex; flex-direction: column; align-items: center; padding: 26px 24px; text-align: center; }
+.group-profile-avatar { display: grid; place-items: center; width: 88px; height: 88px; border-radius: 50%; background: #2b5278; font-size: 36px; }
+.group-profile-hero h3 { max-width: 100%; overflow-wrap: anywhere; margin: 16px 0 7px; font-size: 24px; }
+.group-profile-hero > span { color: #8e9ba7; font-size: 14px; }
+.group-profile-details { padding: 0 24px 24px; border-bottom: 8px solid #0e1621; }
+.group-profile-details > div { margin-bottom: 18px; }
+.group-profile-details > div > span { display: block; color: #8e9ba7; font-size: 12px; margin-bottom: 7px; }
+.group-profile-details strong { font-weight: 500; overflow-wrap: anywhere; }
+.group-profile-details p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; font-size: 14px; }
+.group-profile-username { color: #69b5ff; }
+.group-profile-muted { color: #8e9ba7; }
+.group-profile-edit { width: 100%; padding: 11px; border: 0; border-radius: 9px; background: #3390ec20; color: #69b5ff; }
+.group-profile-edit:hover { background: #3390ec30; }
+.group-profile-members { padding: 20px 24px; }
+.group-profile-members h3 { margin: 0 0 16px; font-size: 15px; font-weight: 600; }
+.group-profile-members h3 span { margin-left: 6px; color: #8e9ba7; font-weight: 400; }
+.group-profile-members ul { list-style: none; padding: 0; margin: 0; }
+.group-profile-members li { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.group-member-avatar { flex: 0 0 42px; height: 42px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: #2b5278; color: #fff; font-size: 18px; }
+.group-member-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.group-member-name { flex: 1; min-width: 0; }
+.group-member-name strong { display: block; overflow-wrap: anywhere; font-size: 14px; font-weight: 500; }
+.group-member-name small { display: block; color: #8e9ba7; margin-top: 4px; overflow-wrap: anywhere; }
+.group-admin-badge { flex-shrink: 0; padding: 4px 7px; border-radius: 6px; font-size: 11px; background: #3390ec20; color: #69b5ff; }
+.group-profile-form { padding: 24px; }
+.group-profile-form > label { display: grid; gap: 8px; margin-bottom: 20px; font-size: 14px; }
+.group-profile-form input, .group-profile-form textarea { width: 100%; min-width: 0; padding: 12px; border: 1px solid #354657; border-radius: 9px; background: #0e1621; color: #fff; font: inherit; }
+.group-profile-form textarea { resize: vertical; }
+.group-profile-form small { color: #8e9ba7; font-size: 12px; }
+.group-username-input { display: flex; align-items: center; gap: 8px; }
+.group-username-input > span { color: #69b5ff; }
+.group-profile-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.group-profile-actions button { border: 0; padding: 11px 16px; border-radius: 9px; background: #253341; color: #fff; }
+.group-profile-actions .group-profile-save { background: #3390ec; }
+.group-profile-error { color: #ff9999; }
+.group-profile-dialog button:disabled { opacity: .5; cursor: default; }
+.group-profile-dialog :focus-visible { outline: 2px solid #69b5ff; outline-offset: 2px; }
+.group-dialog textarea { width: 100%; padding: 12px; border: 1px solid #354657; border-radius: 10px; background: #0e1621; color: #fff; font: inherit; resize: vertical; }
+.group-dialog label small { color: #8e9ba7; font-size: 12px; font-weight: 400; }

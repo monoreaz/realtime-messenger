@@ -8,6 +8,8 @@ export function GroupDialog({ token, currentUserId, chats, onClose, onCreated }:
 }) {
     const dialogRef = useRef<HTMLDialogElement>(null);
     const [name, setName] = useState("");
+    const [username, setUsername] = useState("");
+    const [description, setDescription] = useState("");
     const [query, setQuery] = useState("");
     const [results, setResults] = useState<User[]>([]);
     const [selected, setSelected] = useState<User[]>([]);
@@ -46,7 +48,7 @@ export function GroupDialog({ token, currentUserId, chats, onClose, onCreated }:
         setSaving(true);
         setError("");
         try {
-            onCreated(await createGroupChat(token, name.trim(), selected.map(user => user.id)));
+            onCreated(await createGroupChat(token, name.trim(), selected.map(user => user.id), username.trim(), description.trim()));
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : "Could not create group");
             setSaving(false);
@@ -57,6 +59,8 @@ export function GroupDialog({ token, currentUserId, chats, onClose, onCreated }:
         <form onSubmit={submit}>
             <header><h2 id="group-title">New group</h2><button type="button" onClick={onClose} disabled={saving} aria-label="Close">×</button></header>
             <label>Group name<input autoFocus value={name} onChange={event => setName(event.target.value)} maxLength={100} required disabled={saving} placeholder="Friends, family, team…" /></label>
+            <label>Group username <small>Optional · 3–32 letters, numbers or underscores</small><input value={username} onChange={event => setUsername(event.target.value.replace(/^@/, "").toLowerCase())} minLength={3} maxLength={32} pattern="[a-z0-9_]{3,32}" disabled={saving} placeholder="group_username" /></label>
+            <label>Description <small>Optional</small><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} disabled={saving} rows={3} placeholder="What is this group about?" /></label>
             <label>Add participants<input value={query} onChange={event => setQuery(event.target.value)} disabled={saving} placeholder="Search by username" /></label>
             <div className="group-search-results" aria-live="polite">
                 {!query.trim() && <p className="group-contacts-title">Your chats</p>}

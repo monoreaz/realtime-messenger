@@ -29,6 +29,8 @@ class Chat(Base):
     )
 
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    username: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     direct_key: Mapped[str | None] = mapped_column(
         String(73),
@@ -44,6 +46,8 @@ class Chat(Base):
 
 class ChatMember(Base):
     __tablename__ = "chat_members"
+
+    group_role: Mapped[str] = mapped_column(String(16), nullable=False, default="member", server_default="member")
 
     chat_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
