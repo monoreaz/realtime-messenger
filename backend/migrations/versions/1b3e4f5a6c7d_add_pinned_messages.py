@@ -1,7 +1,7 @@
 """Add message pinning."""
 from alembic import op
 revision = "1b3e4f5a6c7d"
-down_revision = "f3a7c91d82b4"
+down_revision = "a4c2f7e91b63"
 branch_labels = None
 depends_on = None
 def upgrade() -> None:

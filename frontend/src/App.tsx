@@ -40,7 +40,12 @@ import {
 } from "./api";
 
 import "./App.css";
+import { GroupDialog } from "./GroupDialog";
+import { CallMessage } from "./CallMessage";
+import { AudioCallDialog } from "./AudioCallDialog";
+import { PinnedMessagesDialog } from "./PinnedMessagesDialog";
 import { selectPinnedMessage } from "./pinnedMessages";
+import { useAudioCall } from "./useAudioCall";
 
 
 type AuthMode = "login" | "register" | "forgot" | "reset" | "resend";
@@ -68,7 +73,7 @@ function sortChats(chats: Chat[]): Chat[] {
 
 function getVisibleChats(chats: Chat[]): Chat[] {
     return sortChats(
-        chats.filter((chat) => chat.last_message !== null),
+        chats.filter((chat) => chat.type === "group" || chat.last_message !== null),
     );
 }
 
@@ -97,6 +102,47 @@ function UserAvatar({
         </div>
     );
 }
+
+function PeerProfileDialog({ user, onClose }: { user: User; onClose: () => void }) {
+    const dialogRef = useRef<HTMLDialogElement | null>(null);
+
+    useEffect(() => {
+        const dialog = dialogRef.current;
+        dialog?.showModal();
+        return () => dialog?.close();
+    }, []);
+
+    return (
+        <dialog
+            ref={dialogRef}
+            className="peer-profile-dialog"
+            aria-labelledby="peer-profile-title"
+            onCancel={onClose}
+            onClick={(event) => {
+                if (event.target === event.currentTarget) onClose();
+            }}
+        >
+            <div className="peer-profile-card">
+                <button
+                    className="peer-profile-close"
+                    type="button"
+                    onClick={onClose}
+                    aria-label="Close profile"
+                    autoFocus
+                >×</button>
+                <UserAvatar user={user} className="peer-profile-avatar" />
+                <h2 id="peer-profile-title">{getUserDisplayName(user)}</h2>
+                <dl className="peer-profile-details">
+                    <dt>Username</dt>
+                    <dd>@{user.username}</dd>
+                    <dt>Bio</dt>
+                    <dd>{user.bio?.trim() || "No bio yet"}</dd>
+                </dl>
+            </div>
+        </dialog>
+    );
+}
+
 
 function getSessionDeviceName(
     userAgent: string | null,
@@ -166,6 +212,7 @@ function App() {
     const [draftPeer, setDraftPeer] = useState<User | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
+    const [pinnedListChatId, setPinnedListChatId] = useState<string | null>(null);
     const [pinnedAnchorId, setPinnedAnchorId] = useState<string | null>(null);
     const chatPins = pinnedMessages.filter(message => message.chat_id === activeChat?.id && !message.deleted_at);
     const displayedPin = selectPinnedMessage(chatPins, messages.find(message => message.id === pinnedAnchorId));
@@ -268,6 +315,9 @@ function App() {
     );
 
     const [profileOpen, setProfileOpen] = useState(false);
+    const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+    const [groupMembersOpen, setGroupMembersOpen] = useState(false);
+    const [peerProfileOpen, setPeerProfileOpen] = useState(false);
 
     const [settingsTab, setSettingsTab] = useState<SettingsTab>("profile");
 
@@ -288,10 +338,16 @@ function App() {
     const [showScrollToLatest, setShowScrollToLatest] = useState(false);
     const scrollToLatestOnOpenRef = useRef(false);
     const websocketRef = useRef<WebSocket | null>(null);
+    const audioCall = useAudioCall(websocketRef, wsStatus === "connected");
 
     const typingTimeoutRef = useRef< ReturnType<typeof setTimeout> | null >(null);
 
     const typingChatIdRef = useRef<string | null>(null);
+
+
+    useEffect(() => {
+        setPeerProfileOpen(false);
+    }, [activeChat?.id, draftPeer?.id, user?.id]);
 
 
     useLayoutEffect(() => {
@@ -315,6 +371,7 @@ function App() {
     useEffect(() => {
         replyNavigationRef.current += 1;
         setReplyTarget(null);
+        setPinnedListChatId(null);
     }, [activeChat?.id, draftPeer?.id]);
 
     function updatePinnedAnchor() {
@@ -1101,6 +1158,10 @@ function App() {
 
         websocket.addEventListener("message", (event) => {
             const data = JSON.parse(event.data);
+            if (typeof data.type === "string" && data.type.startsWith("call.")) {
+                void audioCall.receive(data);
+                return;
+            }
 
             if (data.type === "connection.ready") {
                 setWsStatus("connected");
@@ -1177,10 +1238,16 @@ function App() {
                 return;
             }
 
+            if (data.type === "chat.created") {
+                void getChats(token).then(items => setChats(getVisibleChats(items)))
+                    .catch(() => setError("Could not refresh chats"));
+                return;
+            }
+
             if (data.type === "chat.read") {
                 setChats((currentChats) =>
                     currentChats.map((chat) =>
-                        chat.id === data.chat_id
+                        chat.id === data.chat_id && chat.type === "private"
                             ? {
                                   ...chat,
                                   peer_last_read_at: data.read_at,
@@ -1192,7 +1259,7 @@ function App() {
                 setActiveChat((currentChat) => {
                     if (
                         !currentChat ||
-                        currentChat.id !== data.chat_id
+                        currentChat.id !== data.chat_id || currentChat.type !== "private"
                     ) {
                         return currentChat;
                     }
@@ -1209,30 +1276,13 @@ function App() {
             if (data.type === "profile.updated") {
                 const updatedUser = data.user as User;
 
-                setChats((currentChats) =>
-                    currentChats.map((chat) =>
-                        chat.peer.id === updatedUser.id
-                            ? {
-                                  ...chat,
-                                  peer: updatedUser,
-                              }
-                            : chat,
-                    ),
-                );
-
-                setActiveChat((currentChat) => {
-                    if (
-                        !currentChat ||
-                        currentChat.peer.id !== updatedUser.id
-                    ) {
-                        return currentChat;
-                    }
-
-                    return {
-                        ...currentChat,
-                        peer: updatedUser,
-                    };
+                const updateChatUser = (chat: Chat): Chat => ({
+                    ...chat,
+                    peer: chat.peer?.id === updatedUser.id ? updatedUser : chat.peer,
+                    members: chat.members.map(member => member.id === updatedUser.id ? updatedUser : member),
                 });
+                setChats(items => items.map(updateChatUser));
+                setActiveChat(chat => chat ? updateChatUser(chat) : null);
 
                 setDraftPeer((currentPeer) =>
                     currentPeer?.id === updatedUser.id
@@ -1385,7 +1435,7 @@ function App() {
                             draftPeerId === incomingMessage.sender_id
                                 ? visibleChats.find(
                                       (chat) =>
-                                          chat.id === incomingMessage.chat_id,
+                                          chat.type === "private" && chat.id === incomingMessage.chat_id,
                                   )
                                 : undefined;
 
@@ -1590,10 +1640,11 @@ function App() {
         setActiveChat(chat);
         setTypingUserIds(new Set());
 
-        sendWebSocketEvent({
+        if (chat.peer) sendWebSocketEvent({
             type: "presence.get",
             user_id: chat.peer.id,
         });
+        setGroupMembersOpen(false);
 
         scrollToLatestOnOpenRef.current = true;
         setMessagesLoading(true);
@@ -1670,7 +1721,7 @@ function App() {
         setError("");
 
         const existingChat = chats.find(
-            (chat) => chat.peer.id === targetUser.id,
+            (chat) => chat.peer?.id === targetUser.id,
         );
 
         setSearchQuery("");
@@ -2820,10 +2871,15 @@ function App() {
 
 
     const currentPeer = activeChat?.peer ?? draftPeer;
+    const senderName = (senderId: string) => {
+        if (senderId === user.id) return "You";
+        const sender = activeChat?.members.find(member => member.id === senderId) ?? currentPeer;
+        return sender ? getUserDisplayName(sender) : "Participant";
+    };
 
 
     return (
-        <main className={`messenger ${currentPeer ? "chat-open" : ""}`}>
+        <main className={`messenger ${activeChat || currentPeer ? "chat-open" : ""}`}>
             <aside className="sidebar">
                 <header className="sidebar-header">
                     <div className="current-user">
@@ -2846,6 +2902,7 @@ function App() {
                     </div>
 
                     <div className="sidebar-actions">
+                        <button className="settings-button" type="button" onClick={() => setGroupDialogOpen(true)} aria-label="Create group" title="Create group">＋</button>
                         <button className="settings-button" type="button" onClick={openProfileSettings} aria-label="Profile settings">
                             ⚙
                         </button>
@@ -2905,17 +2962,12 @@ function App() {
                     ) : (
                         chats.map((chat) => (
                             <button className={`chat-item ${activeChat?.id === chat.id ? "active" : ""}`} type="button" key={chat.id} onClick={() => void openChat(chat)}>
-                                <UserAvatar
-                                    user={chat.peer}
-                                    className="chat-avatar"
-                                />
+                                {chat.peer ? <UserAvatar user={chat.peer} className="chat-avatar" /> : <div className="chat-avatar group-avatar" aria-hidden="true">👥</div>}
 
                                 <div className="chat-info">
                                     <div className="chat-title-row">
                                         <strong>
-                                            {getUserDisplayName(
-                                                chat.peer,
-                                            )}
+                                            {chat.type === "group" ? chat.name : chat.peer ? getUserDisplayName(chat.peer) : "Chat"}
                                         </strong>
 
                                         {chat.last_message && (
@@ -2960,25 +3012,45 @@ function App() {
                 </div>
             </aside>
 
+            {groupDialogOpen && token && <GroupDialog token={token} currentUserId={user.id} chats={chats} onClose={() => setGroupDialogOpen(false)} onCreated={chat => {
+                setGroupDialogOpen(false);
+                setChats(items => sortChats([chat, ...items.filter(item => item.id !== chat.id)]));
+                void openChat(chat);
+            }} />}
+            {audioCall.error && !audioCall.call && <div className="call-notice" role="status">{audioCall.error} <button onClick={audioCall.play}>Enable audio</button><button onClick={audioCall.dismissError} aria-label="Close">×</button></div>}
+            {audioCall.call && <AudioCallDialog name={audioCall.call.name} phase={audioCall.call.phase} elapsedSeconds={audioCall.elapsedSeconds} muted={audioCall.muted} onAccept={() => void audioCall.accept()} onEnd={() => audioCall.end()} onToggleMute={audioCall.toggleMute} error={audioCall.error} onPlayAudio={audioCall.play} />}
             <section className="chat-panel">
-                {currentPeer ? (
+                {activeChat || currentPeer ? (
                     <>
                         <header className="chat-header">
                             <button className="mobile-back-button" type="button" onClick={closeChat} aria-label="Back to chats">
                                 ←
                             </button>
 
+                            {activeChat?.type === "group" ? <>
+                                <div className="chat-avatar group-avatar" aria-hidden="true">👥</div>
+                                <div className="chat-peer-info">
+                                    <button className="peer-profile-trigger" type="button" onClick={() => setGroupMembersOpen(open => !open)} aria-expanded={groupMembersOpen}>
+                                        {activeChat.name}
+                                    </button>
+                                    <span className="peer-status">{typingUserIds.size ? "Someone is typing..." : `${activeChat.members.length} participants`}</span>
+                                </div>
+                            </> : currentPeer && <>
                             <UserAvatar
                                 user={currentPeer}
                                 className="chat-avatar"
                             />
 
-                            <div>
-                                <strong>
-                                    {getUserDisplayName(
-                                        currentPeer,
-                                    )}
-                                </strong>
+                            <div className="chat-peer-info">
+                                <button
+                                    className="peer-profile-trigger"
+                                    type="button"
+                                    onClick={() => setPeerProfileOpen(true)}
+                                    aria-haspopup="dialog"
+                                    aria-label={`View profile of ${getUserDisplayName(currentPeer)}`}
+                                >
+                                    {getUserDisplayName(currentPeer)}
+                                </button>
 
                                 <span
                                     className={
@@ -3004,13 +3076,37 @@ function App() {
                                           : "Offline"}
                                 </span>
                             </div>
-                        </header>
-                        {displayedPin && (
-                            <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(displayedPin.id)}>
-                                <span className="pinned-message-icon">📌</span>
-                                <span><strong>{chatPins.length} pinned message{chatPins.length === 1 ? "" : "s"}</strong><small>{displayedPin.content || (displayedPin.image_url ? "Photo" : "Video")}</small></span>
-                                <span aria-hidden="true">›</span>
+                            <button className="call-button" type="button" aria-label="Start audio call" title="Start audio call" disabled={wsStatus !== "connected" || Boolean(audioCall.call)} onClick={() => {
+                                if (!token) return;
+                                const peer = currentPeer;
+                                void createPrivateChat(token, peer.id)
+                                    .then(() => audioCall.start(peer.id, getUserDisplayName(peer)))
+                                    .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Could not start the call"));
+                            }}>
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L9 10.9a16 16 0 0 0 4.1 4.1l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 2.7 3Z"/></svg>
                             </button>
+                            </>}
+                        </header>
+                        {activeChat?.type === "group" && groupMembersOpen && (
+                            <div className="group-members" aria-label="Group participants">
+                                {activeChat.members.map(member => <div key={member.id}><UserAvatar user={member} className="small-avatar" /><span>{getUserDisplayName(member)}{member.id === user.id ? " (you)" : ""}<small>@{member.username}</small></span></div>)}
+                            </div>
+                        )}
+                        {displayedPin && (
+                            <div className="pinned-message-toolbar">
+                                <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(displayedPin.id)}>
+                                    <span className="pinned-message-icon">📌</span>
+                                    <span><strong>{chatPins.length} pinned message{chatPins.length === 1 ? "" : "s"}</strong><small>{displayedPin.content || (displayedPin.image_url ? "Photo" : "Video")}</small></span>
+                                    <span aria-hidden="true">›</span>
+                                </button>
+                                <button className="pinned-list-toggle" type="button" aria-label="Show all pinned messages" title="All pinned messages" aria-haspopup="dialog" onClick={() => setPinnedListChatId(activeChat?.id ?? null)}>
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1" /></svg>
+                                    <span>{chatPins.length}</span>
+                                </button>
+                            </div>
+                        )}
+                        {pinnedListChatId && pinnedListChatId === activeChat?.id && (
+                            <PinnedMessagesDialog messages={chatPins} onClose={() => setPinnedListChatId(null)} onSelect={jumpToMessage} />
                         )}
 
                         <div className="messages-viewport">
@@ -3101,21 +3197,25 @@ function App() {
                                                 }
                                             >
                                                 <div
-                                                    className={`message-bubble ${
+                                                    className={`message-bubble ${message.is_call ? "call-message-bubble" : ""} ${
                                                         imageUrl || videoUrl
                                                             ? "media-message"
                                                             : ""
                                                     }`}
                                                 >
+                                                    {activeChat?.type === "group" && !isOwnMessage && <strong className="group-message-author">{senderName(message.sender_id)}</strong>}
                                                     {message.reply_to_message && (
-                                                        <div className="message-reply">
+                                                        <button
+                                                            className="message-reply"
+                                                            type="button"
+                                                            aria-label="Go to original message"
+                                                            onClick={() => void navigateToReply(message.reply_to_message!.id)}
+                                                        >
                                                             <strong>
                                                                 {message.reply_to_message.sender_id ===
                                                                 user.id
                                                                     ? "You"
-                                                                    : getUserDisplayName(
-                                                                          currentPeer,
-                                                                      )}
+                                                                    : senderName(message.reply_to_message.sender_id)}
                                                             </strong>
 
                                                             <span>
@@ -3126,7 +3226,7 @@ function App() {
                                                                           ? "Video"
                                                                           : "Message")}
                                                             </span>
-                                                        </div>
+                                                        </button>
                                                     )}
 
                                                     {(imageUrl || videoUrl) && (
@@ -3177,6 +3277,7 @@ function App() {
                                                             )}
 
                                                             <div className={`message-media-meta ${message.content ? "with-caption" : ""}`}>
+                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message">📌</span>}
                                                                 {message.edited_at && (
                                                                     <span>edited</span>
                                                                 )}
@@ -3202,13 +3303,14 @@ function App() {
                                                     )}
 
                                                     {message.content && !imageUrl && !videoUrl && (
-                                                        <div className="message-content">
-                                                            {message.content}
-                                                        </div>
+                                                        message.is_call
+                                                            ? <CallMessage content={message.content} outgoing={isOwnMessage} />
+                                                            : <div className="message-content">{message.content}</div>
                                                     )}
 
                                                     {!imageUrl && !videoUrl && (
                                                         <div className="message-meta">
+                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message">📌</span>}
                                                             {message.edited_at && (
                                                                 <span className="message-edited">
                                                                     edited
@@ -3291,9 +3393,7 @@ function App() {
                                             Replying to{" "}
                                             {replyingTo.sender_id === user.id
                                                 ? "yourself"
-                                                : getUserDisplayName(
-                                                      currentPeer,
-                                                  )}
+                                                : senderName(replyingTo.sender_id)}
                                         </strong>
 
                                         <span>
@@ -3814,6 +3914,13 @@ function App() {
                         </div>
                     </section>
                 </div>
+            )}
+
+            {peerProfileOpen && currentPeer && (
+                <PeerProfileDialog
+                    user={currentPeer}
+                    onClose={() => setPeerProfileOpen(false)}
+                />
             )}
 
             {imageViewerUrl && (() => {

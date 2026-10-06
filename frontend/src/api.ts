@@ -19,6 +19,7 @@ export interface LastMessage {
     sender_id: string;
     content: string;
     image_url: string | null;
+    video_url: string | null;
     created_at: string;
 }
 
@@ -26,7 +27,9 @@ export interface LastMessage {
 export interface Chat {
     id: string;
     type: string;
-    peer: User;
+    peer: User | null;
+    name: string | null;
+    members: User[];
     created_at: string;
     last_message: LastMessage | null;
     unread_count: number;
@@ -39,15 +42,18 @@ export interface ReplyMessage {
     sender_id: string;
     content: string;
     image_url: string | null;
+    video_url: string | null;
 }
 
 
 export interface Message {
+    is_call?: boolean;
     id: string;
     chat_id: string;
     sender_id: string;
     content: string;
     image_url: string | null;
+    video_url: string | null;
     created_at: string;
     edited_at: string | null;
     deleted_at: string | null;
@@ -780,6 +786,48 @@ export async function sendImageMessage(
 }
 
 
+export async function sendVideoMessage(
+    token: string,
+    chatId: string,
+    file: File,
+    caption: string,
+    replyToMessageId: string | null = null,
+): Promise<Message> {
+    const formData = new FormData();
+
+    formData.append("file", file);
+    formData.append("caption", caption);
+
+    if (replyToMessageId) {
+        formData.append(
+            "reply_to_message_id",
+            replyToMessageId,
+        );
+    }
+
+    const response = await fetch(
+        `${API_BASE_URL}/chats/${chatId}/messages/video`,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+        },
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            await getErrorMessage(
+                response,
+                "Could not send video",
+            ),
+        );
+    }
+
+    return response.json();
+}
+
 export function createWebSocket(): WebSocket {
     const protocol =
         window.location.protocol ===
@@ -911,3 +959,14 @@ export async function logoutOtherSessions(
 }
 
 
+
+
+export async function createGroupChat(token: string, name: string, memberIds: string[]): Promise<Chat> {
+    const response = await fetch(`${API_BASE_URL}/chats/group`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name, member_ids: memberIds }),
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not create group"));
+    return response.json();
+}

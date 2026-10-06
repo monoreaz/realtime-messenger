@@ -28,6 +28,8 @@ class Chat(Base):
         nullable=False,
     )
 
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     direct_key: Mapped[str | None] = mapped_column(
         String(73),
         nullable=True,
