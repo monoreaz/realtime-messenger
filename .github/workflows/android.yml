@@ -14,17 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.11.1'
-      - name: Build and lint
-        working-directory: android
-        run: gradle --no-daemon :app:assembleDebug :app:lintDebug
+      - name: Build and lint in the verified Android environment
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE/android:/workspace" -w /workspace gradle:8.11.1-jdk17 bash -c '
+            set -e
+            export ANDROID_HOME=/tmp/android-sdk
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/tools.zip
+            unzip -q /tmp/tools.zip -d "$ANDROID_HOME/cmdline-tools"
+            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" >/dev/null
+            gradle --no-daemon :app:assembleDebug :app:lintDebug
+          '
       - uses: actions/upload-artifact@v4
         with:
           name: messenger-android-debug
