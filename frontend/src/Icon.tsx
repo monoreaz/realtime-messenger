@@ -1,0 +1,5 @@
+const paths = {"settings": "M9.5 3h5l.6 2.4 2.1 1.2 2.4-.7 2.5 4.2-1.8 1.7v2.4l1.8 1.7-2.5 4.2-2.4-.7-2.1 1.2-.6 2.4h-5l-.6-2.4-2.1-1.2-2.4.7L1.9 16l1.8-1.7v-2.4L1.9 10.2l2.5-4.3 2.4.7 2.1-1.2L9.5 3Z M15.5 13a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0", "plus": "M12 5v14M5 12h14", "back": "m14 5-7 7 7 7M7 12h14", "shield": "M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z M9 12l2 2 4-4", "user": "M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 8 0 0 1 16 0v2", "lock": "M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5z M12 14v3", "device": "M3 4h18v13H3z M8 21h8M12 17v4", "pin": "m8 3 8 0-1 7 4 4v2H5v-2l4-4-1-7ZM12 16v6", "reply": "m9 5-6 6 6 6M3 11h10a8 8 0 0 1 8 8", "edit": "m15 4 5 5M4 20l5-1L21 7l-5-5L4 14v6Z", "close": "m6 6 12 12M6 18 18 6", "group": "M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M5 21v-2a7 7 0 0 1 14 0v2 M18 4a3 3 0 0 1 0 6M21 20v-2a6 6 0 0 0-3-5"} as const;
+
+export function Icon({ name }: { name: keyof typeof paths }) {
+    return <svg className="ui-icon" viewBox="0 0 24 26" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={paths[name]} /></svg>;
+}

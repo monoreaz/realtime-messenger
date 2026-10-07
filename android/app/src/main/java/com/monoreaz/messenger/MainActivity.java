@@ -19,6 +19,7 @@ public class MainActivity extends Activity {
     private static final int FILE_REQUEST = 10, AUDIO_REQUEST = 11;
     private static final String DEFAULT_SERVER = "https://messenger-01.tail1a26d2.ts.net";
     private WebView web;
+    private LinearLayout toolbar;
     private LinearLayout errorPanel;
     private ProgressBar progress;
     private String server;
@@ -40,7 +41,7 @@ public class MainActivity extends Activity {
             }
             return insets;
         });
-        LinearLayout toolbar = new LinearLayout(this);
+        toolbar = new LinearLayout(this);
         toolbar.setGravity(android.view.Gravity.CENTER_VERTICAL);
         toolbar.setPadding(dp(20), 0, dp(8), 0);
         TextView brand = new TextView(this);
@@ -51,12 +52,10 @@ public class MainActivity extends Activity {
         brand.setLetterSpacing(0.025f);
         toolbar.addView(brand, new LinearLayout.LayoutParams(0, dp(56), 1));
         brand.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        Button settings = new Button(this);
-        settings.setText("⚙");
-        settings.setTextSize(23);
-        settings.setTextColor(Color.rgb(145, 172, 194));
+        ImageButton settings = new ImageButton(this);
+        settings.setImageResource(com.monoreaz.messenger.R.drawable.ic_settings);
         settings.setBackgroundColor(Color.TRANSPARENT);
-        settings.setPadding(0, 0, 0, 0);
+        settings.setPadding(dp(12), dp(12), dp(12), dp(12));
         settings.setContentDescription("Server settings");
         settings.setOnClickListener(v -> showServerSettings());
         toolbar.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -85,7 +84,16 @@ public class MainActivity extends Activity {
         config.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
+        web.addJavascriptInterface(new ChatChrome(), "MessengerChrome");
         web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                if (!trusted(Uri.parse(url))) return;
+                view.evaluateJavascript("(function(){if(window.messengerChromeObserver)window.messengerChromeObserver.disconnect();"
+                    + "function sync(){MessengerChrome.setChatOpen(!!document.querySelector('.messenger.chat-open'));}"
+                    + "window.messengerChromeObserver=new MutationObserver(sync);"
+                    + "window.messengerChromeObserver.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});sync();})()", null);
+            }
+
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (trusted(request.getUrl())) return false;
                 if (request.isForMainFrame() && "https".equals(request.getUrl().getScheme())) {
@@ -139,6 +147,17 @@ public class MainActivity extends Activity {
         loadServer();
     }
 
+    public class ChatChrome {
+        @JavascriptInterface public void setChatOpen(boolean open) {
+            runOnUiThread(() -> {
+                if (web != null && web.getUrl() != null && trusted(Uri.parse(web.getUrl()))) {
+                    int visibility = open ? View.GONE : View.VISIBLE;
+                    if (toolbar.getVisibility() != visibility) toolbar.setVisibility(visibility);
+                }
+            });
+        }
+    }
+
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
     private boolean trusted(Uri uri) {
@@ -148,9 +167,9 @@ public class MainActivity extends Activity {
     }
     private int effectivePort(Uri uri) { return uri.getPort() == -1 ? 443 : uri.getPort(); }
     private void loadServer() {
-        errorPanel.setVisibility(View.GONE); web.setVisibility(View.VISIBLE); web.loadUrl(server);
+        toolbar.setVisibility(View.VISIBLE); errorPanel.setVisibility(View.GONE); web.setVisibility(View.VISIBLE); web.loadUrl(server);
     }
-    private void showError() { errorPanel.setVisibility(View.VISIBLE); web.setVisibility(View.GONE); }
+    private void showError() { toolbar.setVisibility(View.VISIBLE); errorPanel.setVisibility(View.VISIBLE); web.setVisibility(View.GONE); }
     private void showServerSettings() {
         EditText input = new EditText(this);
         input.setSingleLine(true); input.setInputType(17); input.setText(server);

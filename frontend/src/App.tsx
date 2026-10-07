@@ -40,6 +40,7 @@ import {
 } from "./api";
 
 import "./App.css";
+import { Icon } from "./Icon";
 import { GroupProfileDialog } from "./GroupProfileDialog";
 import { GroupDialog } from "./GroupDialog";
 import { CallMessage } from "./CallMessage";
@@ -130,7 +131,7 @@ function PeerProfileDialog({ user, onClose }: { user: User; onClose: () => void 
                     onClick={onClose}
                     aria-label="Close profile"
                     autoFocus
-                >×</button>
+                ><Icon name="close" /></button>
                 <UserAvatar user={user} className="peer-profile-avatar" />
                 <h2 id="peer-profile-title">{getUserDisplayName(user)}</h2>
                 <dl className="peer-profile-details">
@@ -2993,9 +2994,9 @@ function App() {
                     </div>
 
                     <div className="sidebar-actions">
-                        <button className="settings-button" type="button" onClick={() => setGroupDialogOpen(true)} aria-label="Create group" title="Create group">＋</button>
+                        <button className="settings-button" type="button" onClick={() => setGroupDialogOpen(true)} aria-label="Create group" title="Create group"><Icon name="plus" /></button>
                         <button className="settings-button" type="button" onClick={openProfileSettings} aria-label="Profile settings">
-                            ⚙
+                            <Icon name="settings" />
                         </button>
 
                         <button className="logout-button" type="button" onClick={logout}>
@@ -3053,7 +3054,7 @@ function App() {
                     ) : (
                         chats.map((chat) => (
                             <button className={`chat-item ${activeChat?.id === chat.id ? "active" : ""}`} type="button" key={chat.id} onClick={() => void openChat(chat)}>
-                                {chat.peer ? <UserAvatar user={chat.peer} className="chat-avatar" /> : <div className="chat-avatar group-avatar" aria-hidden="true">👥</div>}
+                                {chat.peer ? <UserAvatar user={chat.peer} className="chat-avatar" /> : <div className="chat-avatar group-avatar" aria-hidden="true"><Icon name="group" /></div>}
 
                                 <div className="chat-info">
                                     <div className="chat-title-row">
@@ -3108,18 +3109,18 @@ function App() {
                 setChats(items => sortChats([chat, ...items.filter(item => item.id !== chat.id)]));
                 void openChat(chat);
             }} />}
-            {audioCall.error && !audioCall.call && <div className="call-notice" role="status">{audioCall.error} <button onClick={audioCall.play}>Enable audio</button><button onClick={audioCall.dismissError} aria-label="Close">×</button></div>}
+            {audioCall.error && !audioCall.call && <div className="call-notice" role="status">{audioCall.error} <button onClick={audioCall.play}>Enable audio</button><button onClick={audioCall.dismissError} aria-label="Close"><Icon name="close" /></button></div>}
             {audioCall.call && <AudioCallDialog name={audioCall.call.name} phase={audioCall.call.phase} elapsedSeconds={audioCall.elapsedSeconds} muted={audioCall.muted} onAccept={() => void audioCall.accept()} onEnd={() => audioCall.end()} onToggleMute={audioCall.toggleMute} error={audioCall.error} onPlayAudio={audioCall.play} />}
             <section ref={swipePanelRef} className="chat-panel" onTouchStart={startBackSwipe} onTouchMove={moveBackSwipe} onTouchEnd={finishBackSwipe} onTouchCancel={() => { if (backSwipe.current?.dragging) settleBackSwipe(false); else backSwipe.current = null; }}>
                 {activeChat || currentPeer ? (
                     <>
                         <header className="chat-header">
                             <button className="mobile-back-button" type="button" onClick={closeChat} aria-label="Back to chats">
-                                ←
+                                <Icon name="back" />
                             </button>
 
                             {activeChat?.type === "group" ? <>
-                                <div className="chat-avatar group-avatar" aria-hidden="true">👥</div>
+                                <div className="chat-avatar group-avatar" aria-hidden="true"><Icon name="group" /></div>
                                 <div className="chat-peer-info">
                                     <button className="peer-profile-trigger" type="button" onClick={() => setGroupMembersOpen(true)} aria-haspopup="dialog" aria-label="Open group profile">
                                         {activeChat.name}
@@ -3188,7 +3189,7 @@ function App() {
                         {displayedPin && (
                             <div className="pinned-message-toolbar">
                                 <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(displayedPin.id)}>
-                                    <span className="pinned-message-icon">📌</span>
+                                    <span className="pinned-message-icon"><Icon name="pin" /></span>
                                     <span><strong>{chatPins.length} pinned message{chatPins.length === 1 ? "" : "s"}</strong><small>{displayedPin.content || (displayedPin.image_url ? "Photo" : "Video")}</small></span>
                                     <span aria-hidden="true">›</span>
                                 </button>
@@ -3370,7 +3371,7 @@ function App() {
                                                             )}
 
                                                             <div className={`message-media-meta ${message.content ? "with-caption" : ""}`}>
-                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message">📌</span>}
+                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message"><Icon name="pin" /></span>}
                                                                 {message.edited_at && (
                                                                     <span>edited</span>
                                                                 )}
@@ -3403,7 +3404,7 @@ function App() {
 
                                                     {!imageUrl && !videoUrl && (
                                                         <div className="message-meta">
-                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message">📌</span>}
+                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message"><Icon name="pin" /></span>}
                                                             {message.edited_at && (
                                                                 <span className="message-edited">
                                                                     edited
@@ -3474,7 +3475,7 @@ function App() {
                                         onClick={cancelEditing}
                                         aria-label="Cancel editing"
                                     >
-                                        ×
+                                        <Icon name="close" />
                                     </button>
                                 </div>
                             )}
@@ -3504,7 +3505,7 @@ function App() {
                                         onClick={() => setReplyingTo(null)}
                                         aria-label="Cancel reply"
                                     >
-                                        ×
+                                        <Icon name="close" />
                                     </button>
                                 </div>
                             )}
@@ -3528,7 +3529,7 @@ function App() {
                                         onClick={clearSelectedImage}
                                         aria-label="Remove selected image"
                                     >
-                                        ×
+                                        <Icon name="close" />
                                     </button>
                                 </div>
                             )}
@@ -3557,7 +3558,7 @@ function App() {
                                         onClick={clearSelectedVideo}
                                         aria-label="Remove selected video"
                                     >
-                                        ×
+                                        <Icon name="close" />
                                     </button>
                                 </div>
                             )}
@@ -3632,7 +3633,7 @@ function App() {
                                     type="button"
                                     onClick={() => startReply(contextMenu.message)}
                                 >
-                                    <span className="message-context-icon">↩</span>
+                                    <span className="message-context-icon"><Icon name="reply" /></span>
                                     <span>Reply</span>
                                 </button>
 
@@ -3649,7 +3650,7 @@ function App() {
                                                 startEditing(contextMenu.message)
                                             }
                                         >
-                                            <span className="message-context-icon">✎</span>
+                                            <span className="message-context-icon"><Icon name="edit" /></span>
                                             <span>Edit</span>
                                         </button>
                                     )}
@@ -3664,7 +3665,7 @@ function App() {
                                             )
                                         }
                                     >
-                                        <span className="message-context-icon">×</span>
+                                        <span className="message-context-icon"><Icon name="close" /></span>
                                         <span>Delete</span>
                                     </button>
                                 )}
@@ -3744,7 +3745,7 @@ function App() {
                         {error}
 
                         <button type="button" onClick={() => setError("")}>
-                            ×
+                            <Icon name="close" />
                         </button>
                     </div>
                 )}
@@ -3760,29 +3761,29 @@ function App() {
                             </div>
 
                             <button className="settings-close-button" type="button" onClick={closeProfileSettings} aria-label="Close settings">
-                                ×
+                                <Icon name="close" />
                             </button>
                         </header>
 
                         <div className="settings-layout">
                             <nav className="settings-sidebar" aria-label="Settings">
                                 <button className={`settings-tab ${settingsTab === "profile" ? "active" : ""}`} type="button" onClick={() => openSettingsTab("profile")}>
-                                    <span className="settings-tab-icon">👤</span>
+                                    <span className="settings-tab-icon"><Icon name="user" /></span>
                                     <span>Profile</span>
                                 </button>
 
                                 <button className={`settings-tab ${settingsTab === "security" ? "active" : ""}`} type="button" onClick={() => openSettingsTab("security")}>
-                                    <span className="settings-tab-icon">🔒</span>
+                                    <span className="settings-tab-icon"><Icon name="lock" /></span>
                                     <span>Security</span>
                                 </button>
 
                                 <button className={`settings-tab ${settingsTab === "sessions" ? "active" : ""}`} type="button" onClick={() => openSettingsTab("sessions")}>
-                                    <span className="settings-tab-icon">💻</span>
+                                    <span className="settings-tab-icon"><Icon name="device" /></span>
                                     <span>Active sessions</span>
                                 </button>
 
                                 <button className={`settings-tab ${settingsTab === "privacy" ? "active" : ""}`} type="button" onClick={() => openSettingsTab("privacy")}>
-                                    <span className="settings-tab-icon">🛡</span>
+                                    <span className="settings-tab-icon"><Icon name="shield" /></span>
                                     <span>Privacy</span>
                                 </button>
                             </nav>
@@ -4047,7 +4048,7 @@ function App() {
                             }
                             aria-label="Close image"
                         >
-                            ×
+                            <Icon name="close" />
                         </button>
 
                         {imageUrls.length > 1 && (

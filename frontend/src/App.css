@@ -3038,3 +3038,18 @@ button {
 @media (prefers-reduced-motion: reduce) {
     .messenger.swipe-settling .chat-panel { transition: none; }
 }
+
+/* Touch taps do not leave the browser's link highlight behind. */
+* { -webkit-tap-highlight-color: transparent; }
+button:focus:not(:focus-visible), a:focus:not(:focus-visible), [role="button"]:focus:not(:focus-visible) { outline: none; }
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible { outline: 2px solid #79c6ff; outline-offset: 3px; }
+.ui-icon { width: 22px; height: 22px; display: inline-block; vertical-align: middle; flex-shrink: 0; pointer-events: none; }
+.settings-button { display: inline-flex; align-items: center; justify-content: center; color: #9bc9eb; border-radius: 12px; }
+.settings-button .ui-icon { width: 23px; height: 23px; }
+.message-pinned-badge .ui-icon { width: 12px; height: 12px; }
+.message-context-icon .ui-icon, .pinned-message-icon .ui-icon { width: 19px; height: 19px; }
+@media (hover: none) {
+    .settings-button:hover, .logout-button:hover, .mobile-back-button:hover, .call-button:hover { background: transparent; }
+    .chat-item:not(.active):hover { background: transparent; }
+    .settings-button:active, .mobile-back-button:active, .call-button:active { background: #ffffff0d; }
+}

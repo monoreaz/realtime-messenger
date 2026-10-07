@@ -53,7 +53,7 @@ jobs:
           cat > release-notes.md <<EOF
           Download and open [messenger-android.apk](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/messenger-android.apk) on your Android phone. No ZIP extraction needed. Do not download the Source code archives.
 
-          Blue Messenger header, English Android interface, and a separate server settings button. Mobile chat navigation is delivered by the Messenger server.
+          Consistent outline icons, clean touch feedback, and a Messenger header that hides inside private chats and groups. Smooth swipe navigation is delivered by the Messenger server.
 
           Android 8.0+. Enable Tailscale to connect to the Messenger server. This is a test APK with debug signing; if Android reports a signature conflict, uninstall the previous app and install this APK, then sign in again. Chats remain on the server.
           EOF
