@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ChangeEvent, ClipboardEvent as ReactClipboardEvent, FormEvent, MouseEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
+import type { ChangeEvent, ClipboardEvent as ReactClipboardEvent, FormEvent, MouseEvent, PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from "react";
 
 import {
     createPrivateChat,
@@ -329,6 +329,7 @@ function App() {
     const [avatarUploading, setAvatarUploading] = useState(false);
     const [profileMessage, setProfileMessage] = useState("");
 
+    const backSwipe = useRef<{ x: number; y: number; started: number } | null>(null);
     const activeChatIdRef = useRef<string | null>(null);
     const draftPeerIdRef = useRef<string | null>(null);
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -2467,6 +2468,36 @@ function App() {
     }
 
 
+    function startBackSwipe(event: ReactTouchEvent<HTMLElement>) {
+        backSwipe.current = null;
+        if (!window.matchMedia("(max-width: 720px)").matches || event.touches.length !== 1) return;
+        const target = event.target as HTMLElement;
+        if (target.closest('button, a, input, textarea, video, audio, [role="dialog"], [role="slider"], [contenteditable="true"]')) return;
+        if (document.querySelector('[role="dialog"], .modal-overlay, .message-context-menu, .message-delete-modal, .profile-overlay')) return;
+        if (window.getSelection()?.toString()) return;
+        const touch = event.touches[0];
+        backSwipe.current = { x: touch.clientX, y: touch.clientY, started: Date.now() };
+    }
+
+    function moveBackSwipe(event: ReactTouchEvent<HTMLElement>) {
+        const start = backSwipe.current;
+        if (!start) return;
+        const touch = event.touches[0];
+        if (event.touches.length !== 1 || Math.abs(touch.clientY - start.y) > 32 || touch.clientX < start.x - 12) {
+            backSwipe.current = null;
+        }
+    }
+
+    function finishBackSwipe(event: ReactTouchEvent<HTMLElement>) {
+        const start = backSwipe.current;
+        backSwipe.current = null;
+        if (!start || !event.changedTouches.length) return;
+        const touch = event.changedTouches[0];
+        const dx = touch.clientX - start.x;
+        const dy = Math.abs(touch.clientY - start.y);
+        if (dx >= 90 && dx > dy * 3 && dy <= 32 && Date.now() - start.started < 800) closeChat();
+    }
+
     function closeChat() {
         stopTyping();
         setReplyingTo(null);
@@ -3024,7 +3055,7 @@ function App() {
             }} />}
             {audioCall.error && !audioCall.call && <div className="call-notice" role="status">{audioCall.error} <button onClick={audioCall.play}>Enable audio</button><button onClick={audioCall.dismissError} aria-label="Close">×</button></div>}
             {audioCall.call && <AudioCallDialog name={audioCall.call.name} phase={audioCall.call.phase} elapsedSeconds={audioCall.elapsedSeconds} muted={audioCall.muted} onAccept={() => void audioCall.accept()} onEnd={() => audioCall.end()} onToggleMute={audioCall.toggleMute} error={audioCall.error} onPlayAudio={audioCall.play} />}
-            <section className="chat-panel">
+            <section className="chat-panel" onTouchStart={startBackSwipe} onTouchMove={moveBackSwipe} onTouchEnd={finishBackSwipe} onTouchCancel={() => { backSwipe.current = null; }}>
                 {activeChat || currentPeer ? (
                     <>
                         <header className="chat-header">

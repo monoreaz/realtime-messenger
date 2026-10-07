@@ -2998,3 +2998,21 @@ button {
 .group-search-results label:hover, .group-search-results label:has(input:checked) { background: #253341; }
 .group-dialog .group-contacts-title { margin: 0 0 8px; font-weight: 600; }
 .group-dialog header button:hover { color: #fff; }
+
+/* Keep mobile navigation reachable and touch targets comfortable. */
+@media (max-width: 720px) {
+    .chat-panel { touch-action: pan-y pinch-zoom; }
+    .mobile-back-button {
+        display: flex;
+        width: 44px;
+        height: 44px;
+        flex: 0 0 44px;
+        color: #5cbeff;
+    }
+    .sidebar-header { gap: 8px; }
+    .current-user > div { min-width: 0; }
+    .current-user strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar-actions { flex-shrink: 0; gap: 4px; }
+    .settings-button, .logout-button { min-height: 44px; min-width: 44px; }
+    .messages, .chats-list { overscroll-behavior-y: contain; }
+}

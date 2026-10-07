@@ -50,4 +50,13 @@ jobs:
         run: |
           mv app-debug.apk messenger-android.apk
           sha256sum messenger-android.apk > messenger-android.apk.sha256
-          gh release create "$RELEASE_TAG" messenger-android.apk messenger-android.apk.sha256 --prerelease --title "Messenger Android ${RELEASE_TAG#android-v}" --notes "Test Android APK (Android 8.0+). Connect to the server through Tailscale. Debug signing: reinstall may be required when updating. No background push notifications yet."
+          cat > release-notes.md <<EOF
+          Download and open [messenger-android.apk](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/messenger-android.apk) on your Android phone. No ZIP extraction needed. Do not download the Source code archives.
+
+          Blue Messenger header, English Android interface, and a separate server settings button. Mobile chat navigation is delivered by the Messenger server.
+
+          Android 8.0+. Enable Tailscale to connect to the Messenger server. This is a test APK with debug signing; if Android reports a signature conflict, uninstall the previous app and install this APK, then sign in again. Chats remain on the server.
+          EOF
+          gh release create "$RELEASE_TAG" messenger-android.apk messenger-android.apk.sha256 --prerelease --title "Messenger Android ${RELEASE_TAG#android-v}" --notes-file release-notes.md
+          echo "### Download Messenger for Android" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Download messenger-android.apk directly](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/messenger-android.apk) — open this APK on your phone; no ZIP extraction needed." >> "$GITHUB_STEP_SUMMARY"

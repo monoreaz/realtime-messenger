@@ -40,21 +40,38 @@ public class MainActivity extends Activity {
             }
             return insets;
         });
+        LinearLayout toolbar = new LinearLayout(this);
+        toolbar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        toolbar.setPadding(dp(20), 0, dp(8), 0);
+        TextView brand = new TextView(this);
+        brand.setText("Messenger");
+        brand.setTextSize(24);
+        brand.setTextColor(Color.rgb(92, 190, 255));
+        brand.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
+        brand.setLetterSpacing(0.025f);
+        toolbar.addView(brand, new LinearLayout.LayoutParams(0, dp(56), 1));
+        brand.setGravity(android.view.Gravity.CENTER_VERTICAL);
         Button settings = new Button(this);
-        settings.setText("Messenger · Сервер");
+        settings.setText("⚙");
+        settings.setTextSize(23);
+        settings.setTextColor(Color.rgb(145, 172, 194));
+        settings.setBackgroundColor(Color.TRANSPARENT);
+        settings.setPadding(0, 0, 0, 0);
+        settings.setContentDescription("Server settings");
         settings.setOnClickListener(v -> showServerSettings());
-        root.addView(settings);
+        toolbar.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        root.addView(toolbar);
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         root.addView(progress, new LinearLayout.LayoutParams(-1, 6));
         errorPanel = new LinearLayout(this);
         errorPanel.setOrientation(LinearLayout.VERTICAL);
         errorPanel.setPadding(24,24,24,24);
         TextView message = new TextView(this);
-        message.setText("Не удалось подключиться. Проверьте интернет и адрес сервера. Для адреса ts.net включите Tailscale и доступ к сети сервера.");
+        message.setText("Unable to connect. Check your internet connection and server address. For ts.net addresses, enable Tailscale and access to the server network.");
         message.setTextColor(Color.WHITE);
         errorPanel.addView(message);
         Button retry = new Button(this);
-        retry.setText("Повторить"); retry.setOnClickListener(v -> loadServer());
+        retry.setText("Try again"); retry.setOnClickListener(v -> loadServer());
         errorPanel.addView(retry);
         root.addView(errorPanel);
         web = new WebView(this);
@@ -122,6 +139,8 @@ public class MainActivity extends Activity {
         loadServer();
     }
 
+    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+
     private boolean trusted(Uri uri) {
         Uri origin = Uri.parse(server);
         return "https".equals(uri.getScheme()) && origin.getHost() != null && origin.getHost().equalsIgnoreCase(uri.getHost())
@@ -135,15 +154,15 @@ public class MainActivity extends Activity {
     private void showServerSettings() {
         EditText input = new EditText(this);
         input.setSingleLine(true); input.setInputType(17); input.setText(server);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("HTTPS-адрес сервера")
-            .setMessage("Укажите адрес вашего мессенджера. При смене сервера потребуется войти заново.")
-            .setView(input).setNegativeButton("Отмена", null).setPositiveButton("Подключиться", null).create();
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Server address")
+            .setMessage("Enter your Messenger HTTPS address. Changing servers requires signing in again.")
+            .setView(input).setNegativeButton("Cancel", null).setPositiveButton("Connect", null).create();
         dialog.setOnShowListener(v -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
             String value = input.getText().toString().trim();
             Uri uri = Uri.parse(value);
             if (!"https".equals(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null
                 || uri.getQuery() != null || uri.getFragment() != null || !(uri.getPath() == null || uri.getPath().isEmpty() || "/".equals(uri.getPath()))) {
-                input.setError("Введите HTTPS-адрес без пути, например https://example.com"); return;
+                input.setError("Enter an HTTPS address without a path, e.g. https://example.com"); return;
             }
             String next = "https://" + uri.getEncodedAuthority();
             if (!next.equals(server)) {
