@@ -329,7 +329,27 @@ function App() {
     const [avatarUploading, setAvatarUploading] = useState(false);
     const [profileMessage, setProfileMessage] = useState("");
 
-    const backSwipe = useRef<{ x: number; y: number; started: number } | null>(null);
+    const backSwipe = useRef<{ x: number; y: number; started: number; dragging: boolean } | null>(null);
+    const swipePanelRef = useRef<HTMLElement | null>(null);
+    const swipeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [swipePhase, setSwipePhase] = useState<"idle" | "dragging" | "settling">("idle");
+
+    useEffect(() => {
+        const reset = () => {
+            if (swipeTimerRef.current) clearTimeout(swipeTimerRef.current);
+            swipeTimerRef.current = null;
+            backSwipe.current = null;
+            swipePanelRef.current?.style.removeProperty("transform");
+            setSwipePhase("idle");
+        };
+        reset();
+        window.addEventListener("resize", reset);
+        return () => {
+            window.removeEventListener("resize", reset);
+            if (swipeTimerRef.current) clearTimeout(swipeTimerRef.current);
+        };
+    }, [activeChat?.id, draftPeer?.id]);
+
     const activeChatIdRef = useRef<string | null>(null);
     const draftPeerIdRef = useRef<string | null>(null);
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -2468,7 +2488,26 @@ function App() {
     }
 
 
+    function settleBackSwipe(complete: boolean) {
+        backSwipe.current = null;
+        const panel = swipePanelRef.current;
+        if (!panel) return;
+        if (swipeTimerRef.current) clearTimeout(swipeTimerRef.current);
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const finish = () => {
+            swipeTimerRef.current = null;
+            panel.style.removeProperty("transform");
+            setSwipePhase("idle");
+            if (complete) closeChat();
+        };
+        if (reducedMotion) { finish(); return; }
+        setSwipePhase("settling");
+        panel.style.transform = complete ? "translate3d(100%, 0, 0)" : "translate3d(0, 0, 0)";
+        swipeTimerRef.current = setTimeout(finish, 260);
+    }
+
     function startBackSwipe(event: ReactTouchEvent<HTMLElement>) {
+        if (swipePhase !== "idle") return;
         backSwipe.current = null;
         if (!window.matchMedia("(max-width: 720px)").matches || event.touches.length !== 1) return;
         const target = event.target as HTMLElement;
@@ -2476,7 +2515,7 @@ function App() {
         if (document.querySelector('[role="dialog"], .modal-overlay, .message-context-menu, .message-delete-modal, .profile-overlay')) return;
         if (window.getSelection()?.toString()) return;
         const touch = event.touches[0];
-        backSwipe.current = { x: touch.clientX, y: touch.clientY, started: Date.now() };
+        backSwipe.current = { x: touch.clientX, y: touch.clientY, started: Date.now(), dragging: false };
     }
 
     function moveBackSwipe(event: ReactTouchEvent<HTMLElement>) {
@@ -2484,21 +2523,37 @@ function App() {
         if (!start) return;
         const touch = event.touches[0];
         if (event.touches.length !== 1 || Math.abs(touch.clientY - start.y) > 32 || touch.clientX < start.x - 12) {
-            backSwipe.current = null;
+            if (start.dragging) settleBackSwipe(false);
+            else backSwipe.current = null;
+            return;
         }
+        const dx = touch.clientX - start.x;
+        const dy = Math.abs(touch.clientY - start.y);
+        if (!start.dragging && (dx < 10 || dx < dy * 2)) return;
+        start.dragging = true;
+        setSwipePhase("dragging");
+        // Update only the compositor transform, without re-rendering messages on every move.
+        const panel = swipePanelRef.current;
+        if (panel) panel.style.transform = `translate3d(${Math.min(panel.clientWidth, Math.max(0, dx))}px, 0, 0)`;
     }
 
     function finishBackSwipe(event: ReactTouchEvent<HTMLElement>) {
         const start = backSwipe.current;
         backSwipe.current = null;
-        if (!start || !event.changedTouches.length) return;
-        const touch = event.changedTouches[0];
-        const dx = touch.clientX - start.x;
-        const dy = Math.abs(touch.clientY - start.y);
-        if (dx >= 90 && dx > dy * 3 && dy <= 32 && Date.now() - start.started < 800) closeChat();
+        if (!start?.dragging) return;
+        if (!event.changedTouches.length) { settleBackSwipe(false); return; }
+        const dx = event.changedTouches[0].clientX - start.x;
+        const width = swipePanelRef.current?.clientWidth ?? window.innerWidth;
+        const velocity = dx / Math.max(1, Date.now() - start.started);
+        settleBackSwipe(dx >= width * 0.3 || (dx >= 80 && velocity > 0.45));
     }
 
     function closeChat() {
+        if (swipeTimerRef.current) clearTimeout(swipeTimerRef.current);
+        swipeTimerRef.current = null;
+        backSwipe.current = null;
+        swipePanelRef.current?.style.removeProperty("transform");
+        setSwipePhase("idle");
         stopTyping();
         setReplyingTo(null);
         setEditingMessage(null);
@@ -2915,7 +2970,7 @@ function App() {
 
 
     return (
-        <main className={`messenger ${activeChat || currentPeer ? "chat-open" : ""}`}>
+        <main className={`messenger ${activeChat || currentPeer ? "chat-open" : ""} swipe-${swipePhase}`}>
             <aside className="sidebar">
                 <header className="sidebar-header">
                     <div className="current-user">
@@ -3055,7 +3110,7 @@ function App() {
             }} />}
             {audioCall.error && !audioCall.call && <div className="call-notice" role="status">{audioCall.error} <button onClick={audioCall.play}>Enable audio</button><button onClick={audioCall.dismissError} aria-label="Close">×</button></div>}
             {audioCall.call && <AudioCallDialog name={audioCall.call.name} phase={audioCall.call.phase} elapsedSeconds={audioCall.elapsedSeconds} muted={audioCall.muted} onAccept={() => void audioCall.accept()} onEnd={() => audioCall.end()} onToggleMute={audioCall.toggleMute} error={audioCall.error} onPlayAudio={audioCall.play} />}
-            <section className="chat-panel" onTouchStart={startBackSwipe} onTouchMove={moveBackSwipe} onTouchEnd={finishBackSwipe} onTouchCancel={() => { backSwipe.current = null; }}>
+            <section ref={swipePanelRef} className="chat-panel" onTouchStart={startBackSwipe} onTouchMove={moveBackSwipe} onTouchEnd={finishBackSwipe} onTouchCancel={() => { if (backSwipe.current?.dragging) settleBackSwipe(false); else backSwipe.current = null; }}>
                 {activeChat || currentPeer ? (
                     <>
                         <header className="chat-header">
