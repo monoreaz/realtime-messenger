@@ -272,3 +272,7 @@ TURN, а не административный пароль сервера. Бе
 
 В ранее созданных группах создатель не сохранялся, поэтому миграция не назначает
 администратора автоматически. Ник группы сам по себе не открывает доступ к чату.
+
+## Android app
+
+Android APK installation, Tailscale setup and build instructions: [android/README.md](android/README.md). Test APKs are published to GitHub Releases for `android-v*` tags.
