@@ -119,7 +119,7 @@ async def websocket_endpoint(
             user_id,
         )
 
-    if user is None:
+    if user is None or user.is_blocked:
         await websocket.close(
             code=status.WS_1008_POLICY_VIOLATION
         )
@@ -166,6 +166,12 @@ async def websocket_endpoint(
     try:
         while True:
             data = await websocket.receive_json()
+
+            async with AsyncSessionLocal() as db:
+                allowed_user = await db.get(User, user.id)
+                if allowed_user is None or allowed_user.is_blocked:
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                    break
 
             event_type = data.get("type")
 

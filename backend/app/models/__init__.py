@@ -12,3 +12,4 @@ __all__ = [
     "Message",
     "User",
 ]
+from app.models.push_device import PushDevice

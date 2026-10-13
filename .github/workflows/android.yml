@@ -14,6 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure Firebase when available
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          else
+            echo "::warning::Firebase configuration is missing; this APK will not receive push notifications."
+          fi
       - name: Build and lint in the verified Android environment
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE/android:/workspace" -w /workspace gradle:8.11.1-jdk17 bash -c '
@@ -53,7 +62,7 @@ jobs:
           cat > release-notes.md <<EOF
           Download and open [messenger-android.apk](https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/messenger-android.apk) on your Android phone. No ZIP extraction needed. Do not download the Source code archives.
 
-          Consistent outline icons, clean touch feedback, and a Messenger header that hides inside private chats and groups. Smooth swipe navigation is delivered by the Messenger server.
+          Blue Messenger header, English Android interface, and a separate server settings button. Mobile chat navigation is delivered by the Messenger server.
 
           Android 8.0+. Enable Tailscale to connect to the Messenger server. This is a test APK with debug signing; if Android reports a signature conflict, uninstall the previous app and install this APK, then sign in again. Chats remain on the server.
           EOF

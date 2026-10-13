@@ -829,6 +829,9 @@ async def login(
             },
         )
 
+    if user.is_blocked:
+        raise HTTPException(status_code=403, detail="Your account is blocked")
+
     if (
         user.email is not None
         and user.email_verified_at is None
@@ -943,6 +946,9 @@ async def refresh_access_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
+
+    if user.is_blocked:
+        raise HTTPException(status_code=403, detail="Your account is blocked")
 
     if (
         user.email is not None

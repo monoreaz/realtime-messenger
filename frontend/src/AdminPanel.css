@@ -1,0 +1,56 @@
+.admin-panel { width: min(1080px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 28px; overflow: auto; border: 1px solid #354657; border-radius: 20px; background: #17212b; color: #fff; box-shadow: 0 24px 90px #0008; color-scheme: dark; }
+.admin-panel::backdrop { background: #0009; }
+.admin-header, .admin-section-title, .admin-pagination { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.admin-header { align-items: flex-start; margin-bottom: 24px; }
+.admin-eyebrow { color: #69b5ff; font-size: 11px; letter-spacing: 2px; }
+.admin-header h2 { margin: 6px 0; font-size: 28px; }
+.admin-header p, .admin-confirm p { color: #8e9ba7; margin: 6px 0 0; }
+.admin-panel button { padding: 9px 13px; border: 1px solid #354657; border-radius: 9px; background: #253341; color: #fff; }
+.admin-panel button:hover:not(:disabled) { background: #30465b; }
+.admin-panel button:disabled { opacity: .45; cursor: default; }
+.admin-panel button:focus-visible, .admin-panel input:focus-visible, .admin-panel select:focus-visible { outline: 2px solid #69b5ff; outline-offset: 2px; }
+.admin-panel .admin-close { font-size: 26px; line-height: 1; border: 0; }
+.admin-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 28px; }
+.admin-stats > div { display: grid; gap: 12px; padding: 18px; background: #202b36; border: 1px solid #2c3b4a; border-radius: 12px; }
+.admin-stats span { color: #8e9ba7; font-size: 13px; }
+.admin-stats strong { font-size: 28px; font-weight: 600; }
+.admin-section-title h3 { margin: 0; font-size: 18px; }
+.admin-section-title h3 span { margin-left: 8px; color: #8e9ba7; font-size: 14px; }
+.admin-filters { display: flex; gap: 10px; margin: 16px 0; }
+.admin-filters input, .admin-filters select { min-width: 0; padding: 11px 12px; border: 1px solid #354657; border-radius: 9px; background: #0e1621; color: #fff; font: inherit; }
+.admin-filters input { flex: 1; }
+.admin-filters input::placeholder { color: #8e9ba7; }
+.admin-table-wrap { overflow-x: auto; border: 1px solid #2c3b4a; border-radius: 12px; }
+.admin-panel table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+.admin-panel th { color: #8e9ba7; background: #202b36; font-weight: 500; }
+.admin-panel th, .admin-panel td { padding: 14px; border-bottom: 1px solid #2c3b4a; }
+.admin-panel tr:last-child td { border-bottom: 0; }
+.admin-panel td:first-child, .admin-panel td:nth-child(2) { overflow-wrap: anywhere; min-width: 130px; }
+.admin-panel td strong { font-weight: 600; }
+.admin-panel td small { display: block; margin-top: 4px; color: #8e9ba7; }
+.admin-badge { display: inline-block; padding: 5px 8px; border-radius: 6px; white-space: nowrap; }
+.admin-badge.active { color: #7ee0bd; background: #67d6b31c; }
+.admin-badge.blocked { color: #ff9999; background: #ff85851c; }
+.admin-badge.administrator { color: #69b5ff; background: #3390ec20; }
+.admin-protected { color: #8e9ba7; font-size: 12px; }
+.admin-panel .admin-danger-text { color: #ff9999; }
+.admin-panel .admin-danger { background: #aa3547; border-color: #bd4658; }
+.admin-panel .admin-danger:hover:not(:disabled) { background: #bd4658; }
+.admin-confirm { border: 1px solid #55718c; background: #202e3c; padding: 18px; border-radius: 12px; margin-bottom: 16px; }
+.admin-confirm p { line-height: 1.5; margin-bottom: 14px; }
+.admin-confirm button + button { margin-left: 8px; }
+.admin-pagination { margin-top: 16px; color: #8e9ba7; font-size: 13px; }
+.admin-pagination > div { display: flex; gap: 8px; }
+.admin-panel .admin-empty { padding: 36px; text-align: center; color: #8e9ba7; }
+.admin-error, .admin-notice { padding: 12px 16px; border-radius: 9px; line-height: 1.5; }
+.admin-error { background: #ff85851c; color: #ff9999; }
+.admin-notice { background: #67d6b31c; color: #7ee0bd; }
+@media (max-width: 640px) {
+    .admin-panel { padding: 18px; width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+    .admin-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .admin-filters { flex-wrap: wrap; }
+    .admin-filters input { flex-basis: 100%; }
+    .admin-filters select { flex: 1; }
+    .admin-stats > div { padding: 14px; }
+    .admin-header h2 { font-size: 24px; }
+}

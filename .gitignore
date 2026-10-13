@@ -10,3 +10,8 @@ node_modules/
 dist/
 
 .DS_Store
+
+/frontend/public/downloads/
+
+/android/app/google-services.json
+/secrets/

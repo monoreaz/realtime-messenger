@@ -1,4 +1,5 @@
 export interface User {
+    is_admin?: boolean;
     id: string;
     username: string;
     display_name: string | null;
@@ -973,6 +974,45 @@ export async function createGroupChat(token: string, name: string, memberIds: st
     return response.json();
 }
 
+export interface AdminUser {
+    id: string;
+    username: string;
+    display_name: string | null;
+    email: string | null;
+    email_verified_at: string | null;
+    created_at: string;
+    is_admin: boolean;
+    is_blocked: boolean;
+}
+
+export interface AdminStats {
+    users: number;
+    blocked_users: number;
+    online_users: number;
+    groups: number;
+    private_chats: number;
+    messages: number;
+}
+
+async function adminRequest<T>(token: string, path: string, method = "GET", body?: unknown): Promise<T> {
+    const response = await fetch(`${API_BASE_URL}/admin${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Admin request failed"));
+    return response.json();
+}
+
+export const getAdminStats = (token: string) => adminRequest<AdminStats>(token, "/stats");
+export function getAdminUsers(token: string, q: string, state: string, offset: number, limit: number) {
+    const params = new URLSearchParams({ q, state, offset: String(offset), limit: String(limit) });
+    return adminRequest<{ users: AdminUser[]; total: number }>(token, `/users?${params}`);
+}
+export const setAdminUserBlocked = (token: string, userId: string, isBlocked: boolean) =>
+    adminRequest<AdminUser>(token, `/users/${userId}/block`, "PATCH", { is_blocked: isBlocked });
+
+
 export async function updateGroupProfile(token: string, chatId: string, data: { name: string; username: string | null; description: string | null }): Promise<Chat> {
     const response = await fetch(`${API_BASE_URL}/chats/${chatId}/group`, {
         method: "PATCH",
@@ -981,4 +1021,13 @@ export async function updateGroupProfile(token: string, chatId: string, data: { 
     });
     if (!response.ok) throw new Error(await getErrorMessage(response, "Could not update group"));
     return response.json();
+}
+
+export async function registerPushDevice(accessToken: string, token: string, binding: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/push/devices`, {
+        method: "POST", credentials: "include",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ token, binding }),
+    });
+    if (!response.ok) throw new Error("Could not register notifications");
 }

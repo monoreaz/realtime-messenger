@@ -42,3 +42,13 @@
 .group-profile-dialog :focus-visible { outline: 2px solid #69b5ff; outline-offset: 2px; }
 .group-dialog textarea { width: 100%; padding: 12px; border: 1px solid #354657; border-radius: 10px; background: #0e1621; color: #fff; font: inherit; resize: vertical; }
 .group-dialog label small { color: #8e9ba7; font-size: 12px; font-weight: 400; }
+
+.group-profile-members li { padding: 0; }
+.group-member-trigger { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 8px; border: 0; border-radius: 9px; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.group-member-trigger:hover { background: #253341; }
+
+.member-moderation-content { padding: 20px 24px; line-height: 1.5; }
+.member-moderation-content p { margin: 0 0 16px; }
+.member-moderation-dialog h2 { overflow-wrap: anywhere; min-width: 0; }
+.member-moderation-dialog header button { flex-shrink: 0; }
+.member-block-button { width: 100%; border: 0; border-radius: 9px; padding: 12px; background: #a52c3a; color: white; font: inherit; cursor: pointer; }

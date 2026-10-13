@@ -80,6 +80,8 @@ class UserUpdate(BaseModel):
 
 
 class UserResponse(BaseModel):
+    is_admin: bool = False
+
     model_config = ConfigDict(
         from_attributes=True
     )

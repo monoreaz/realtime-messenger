@@ -8,3 +8,4 @@ pyjwt
 python-multipart
 websockets
 email-validator
+firebase-admin==6.9.0

@@ -26,6 +26,8 @@ services:
 
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      PUSH_ENABLED: ${PUSH_ENABLED:-false}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/messenger-secrets/firebase-service-account.json
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
 
@@ -51,6 +53,7 @@ services:
     volumes:
       - ./backend:/app
       - avatar_data:/app/uploads
+      - ./secrets:/run/messenger-secrets:ro
 
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 

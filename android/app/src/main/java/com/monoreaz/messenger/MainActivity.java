@@ -19,6 +19,7 @@ public class MainActivity extends Activity {
     private static final int FILE_REQUEST = 10, AUDIO_REQUEST = 11;
     private static final String DEFAULT_SERVER = "https://messenger-01.tail1a26d2.ts.net";
     private WebView web;
+    private PushBridge pushBridge;
     private LinearLayout toolbar;
     private LinearLayout errorPanel;
     private ProgressBar progress;
@@ -85,6 +86,8 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         web.addJavascriptInterface(new ChatChrome(), "MessengerChrome");
+        pushBridge = new PushBridge(this, web);
+        pushBridge.install(server);
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {
                 if (!trusted(Uri.parse(url))) return;
@@ -175,6 +178,7 @@ public class MainActivity extends Activity {
         input.setSingleLine(true); input.setInputType(17); input.setText(server);
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Server address")
             .setMessage("Enter your Messenger HTTPS address. Changing servers requires signing in again.")
+            .setNeutralButton("Notifications", (d, which) -> startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())))
             .setView(input).setNegativeButton("Cancel", null).setPositiveButton("Connect", null).create();
         dialog.setOnShowListener(v -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
             String value = input.getText().toString().trim();
@@ -185,13 +189,15 @@ public class MainActivity extends Activity {
             }
             String next = "https://" + uri.getEncodedAuthority();
             if (!next.equals(server)) {
+                PushNotifications.bind(this, next, "");
+                PushNotifications.activeChat = "";
                 web.stopLoading();
                 if (audioRequest != null) { audioRequest.deny(); audioRequest = null; }
                 finishFiles(null);
                 CookieManager.getInstance().removeAllCookies(done -> {
                     CookieManager.getInstance().flush();
                     WebStorage.getInstance().deleteAllData(); web.clearCache(true); web.clearHistory();
-                    server = next; getPreferences(MODE_PRIVATE).edit().putString("server", server).apply(); loadServer();
+                    server = next; pushBridge.install(server); getPreferences(MODE_PRIVATE).edit().putString("server", server).apply(); loadServer();
                 });
             }
             dialog.dismiss();
@@ -212,7 +218,20 @@ public class MainActivity extends Activity {
         }
     }
     @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
-    @Override protected void onPause() { CookieManager.getInstance().flush(); super.onPause(); }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event('messenger-push-sync'))", null);
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        PushNotifications.foreground = true;
+        if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event('messenger-push-sync'))", null);
+    }
+    @Override protected void onPause() {
+        PushNotifications.foreground = false;
+        CookieManager.getInstance().flush(); super.onPause();
+    }
     @Override protected void onDestroy() {
         finishFiles(null); if (audioRequest != null) audioRequest.deny();
         web.destroy(); super.onDestroy();

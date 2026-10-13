@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -15,6 +15,9 @@ class User(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
+
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     username: Mapped[str] = mapped_column(
         String(32),

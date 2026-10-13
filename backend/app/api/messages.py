@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -19,6 +20,7 @@ from datetime import datetime, timezone
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
+from app.services.push import deliver_message_push
 from app.models.chat import ChatMember
 from app.models.message import Message
 from app.models.user import User
@@ -223,6 +225,7 @@ async def broadcast_message(
 )
 async def send_message(
     chat_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     message_data: MessageCreate,
     current_user: Annotated[
         User,
@@ -271,6 +274,7 @@ async def send_message(
         message_response,
     )
 
+    background_tasks.add_task(deliver_message_push, chat_id, message.id, current_user.id)
     return message_response
 
 
@@ -281,6 +285,7 @@ async def send_message(
 )
 async def send_image_message(
     chat_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[
         User,
         Depends(get_current_user),
@@ -395,6 +400,7 @@ async def send_image_message(
         message_response,
     )
 
+    background_tasks.add_task(deliver_message_push, chat_id, message.id, current_user.id)
     return message_response
 
 @router.post(
@@ -404,6 +410,7 @@ async def send_image_message(
 )
 async def send_video_message(
     chat_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[
         User,
         Depends(get_current_user),
@@ -520,6 +527,7 @@ async def send_video_message(
         message_response,
     )
 
+    background_tasks.add_task(deliver_message_push, chat_id, message.id, current_user.id)
     return message_response
 
 @router.get(

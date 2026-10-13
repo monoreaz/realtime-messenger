@@ -1,3 +1,4 @@
+import { useAndroidPush, clearAndroidPush } from "./useAndroidPush";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, ClipboardEvent as ReactClipboardEvent, FormEvent, MouseEvent, PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from "react";
 
@@ -41,6 +42,8 @@ import {
 
 import "./App.css";
 import { Icon } from "./Icon";
+import { AdminPanel } from "./AdminPanel";
+import { PeerProfileDialog } from "./PeerProfileDialog";
 import { GroupProfileDialog } from "./GroupProfileDialog";
 import { GroupDialog } from "./GroupDialog";
 import { CallMessage } from "./CallMessage";
@@ -105,45 +108,6 @@ function UserAvatar({
     );
 }
 
-function PeerProfileDialog({ user, onClose }: { user: User; onClose: () => void }) {
-    const dialogRef = useRef<HTMLDialogElement | null>(null);
-
-    useEffect(() => {
-        const dialog = dialogRef.current;
-        dialog?.showModal();
-        return () => dialog?.close();
-    }, []);
-
-    return (
-        <dialog
-            ref={dialogRef}
-            className="peer-profile-dialog"
-            aria-labelledby="peer-profile-title"
-            onCancel={onClose}
-            onClick={(event) => {
-                if (event.target === event.currentTarget) onClose();
-            }}
-        >
-            <div className="peer-profile-card">
-                <button
-                    className="peer-profile-close"
-                    type="button"
-                    onClick={onClose}
-                    aria-label="Close profile"
-                    autoFocus
-                ><Icon name="close" /></button>
-                <UserAvatar user={user} className="peer-profile-avatar" />
-                <h2 id="peer-profile-title">{getUserDisplayName(user)}</h2>
-                <dl className="peer-profile-details">
-                    <dt>Username</dt>
-                    <dd>@{user.username}</dd>
-                    <dt>Bio</dt>
-                    <dd>{user.bio?.trim() || "No bio yet"}</dd>
-                </dl>
-            </div>
-        </dialog>
-    );
-}
 
 
 function getSessionDeviceName(
@@ -317,6 +281,7 @@ function App() {
     );
 
     const [profileOpen, setProfileOpen] = useState(false);
+    const [adminPanelOpen, setAdminPanelOpen] = useState(false);
     const [groupDialogOpen, setGroupDialogOpen] = useState(false);
     const [groupMembersOpen, setGroupMembersOpen] = useState(false);
     const [peerProfileOpen, setPeerProfileOpen] = useState(false);
@@ -1181,6 +1146,13 @@ function App() {
 
         websocket.addEventListener("message", (event) => {
             const data = JSON.parse(event.data);
+            if (data.type === "account.blocked") {
+                setAdminPanelOpen(false);
+                setToken(null);
+                setUser(null);
+                setError("Your account is blocked");
+                return;
+            }
             if (typeof data.type === "string" && data.type.startsWith("call.")) {
                 void audioCall.receive(data);
                 return;
@@ -1646,6 +1618,20 @@ function App() {
         }
     }
 
+
+    useAndroidPush(token, user?.id, sessionChecked, activeChat?.id, async (chatId) => {
+        if (!token) return;
+        try {
+            const availableChats = await getChats(token);
+            const target = availableChats.find((chat) => chat.id === chatId);
+            if (target) {
+                setChats(getVisibleChats(availableChats));
+                await openChat(target);
+            }
+        } catch {
+            setError("Could not open the notification. Check your connection and try opening the chat.");
+        }
+    });
 
     async function openChat(
         chat: Chat,
@@ -2459,6 +2445,7 @@ function App() {
 
 
     async function logout() {
+        clearAndroidPush();
         stopTyping();
 
         try {
@@ -2994,6 +2981,7 @@ function App() {
                     </div>
 
                     <div className="sidebar-actions">
+                        {user.is_admin && <button className="settings-button" type="button" onClick={() => setAdminPanelOpen(true)} aria-label="Open admin panel" title="Admin panel"><Icon name="shield" /></button>}
                         <button className="settings-button" type="button" onClick={() => setGroupDialogOpen(true)} aria-label="Create group" title="Create group"><Icon name="plus" /></button>
                         <button className="settings-button" type="button" onClick={openProfileSettings} aria-label="Profile settings">
                             <Icon name="settings" />
@@ -3104,6 +3092,7 @@ function App() {
                 </div>
             </aside>
 
+            {adminPanelOpen && user.is_admin && token && <AdminPanel token={token} currentUserId={user.id} onClose={() => setAdminPanelOpen(false)} />}
             {groupDialogOpen && token && <GroupDialog token={token} currentUserId={user.id} chats={chats} onClose={() => setGroupDialogOpen(false)} onCreated={chat => {
                 setGroupDialogOpen(false);
                 setChats(items => sortChats([chat, ...items.filter(item => item.id !== chat.id)]));
@@ -3180,7 +3169,7 @@ function App() {
                             </>}
                         </header>
                         {activeChat?.type === "group" && groupMembersOpen && token && (
-                            <GroupProfileDialog key={activeChat.id} chat={activeChat} token={token} currentUserId={user.id}
+                            <GroupProfileDialog key={activeChat.id} chat={activeChat} token={token} currentUserId={user.id} isSiteAdmin={user.is_admin === true}
                                 onClose={() => setGroupMembersOpen(false)} onUpdated={updated => {
                                     setChats(items => items.map(item => item.id === updated.id ? updated : item));
                                     setActiveChat(current => current?.id === updated.id ? updated : current);

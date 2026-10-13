@@ -1,4 +1,6 @@
 plugins { id 'com.android.application' }
+// Configuration is supplied locally or by CI; unconfigured builds still run.
+if (file('google-services.json').exists()) { apply plugin: 'com.google.gms.google-services' }
 android {
     namespace 'com.monoreaz.messenger'
     compileSdk 35
@@ -6,11 +8,17 @@ android {
         applicationId 'com.monoreaz.messenger'
         minSdk 26
         targetSdk 35
-        versionCode 3
-        versionName '0.1.2'
+        versionCode 4
+        versionName '0.2.0'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    implementation platform('com.google.firebase:firebase-bom:33.16.0')
+    implementation 'com.google.firebase:firebase-messaging'
+    implementation 'androidx.webkit:webkit:1.12.1'
 }

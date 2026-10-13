@@ -6,7 +6,7 @@ from sqlalchemy import update
 from app.models.chat import ChatMember
 from unittest.mock import AsyncMock, patch
 
-from fastapi import HTTPException, Response
+from fastapi import BackgroundTasks, HTTPException, Response
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -60,7 +60,7 @@ class GroupTests(unittest.IsolatedAsyncioTestCase):
         await self.db.execute(update(ChatMember).where(ChatMember.chat_id == group.id).values(
             last_read_at=datetime.now(timezone.utc) - timedelta(minutes=1),
         ))
-        message = await send_message(group.id, MessageCreate(content="Hello team"), self.users[0], self.db)
+        message = await send_message(group.id, BackgroundTasks(), MessageCreate(content="Hello team"), self.users[0], self.db)
         recipients, event = self.broadcast.call_args.args
         self.assertEqual(set(recipients), {u.id for u in self.users[:3]})
         self.assertEqual(event["message"]["id"], str(message.id))
@@ -71,7 +71,7 @@ class GroupTests(unittest.IsolatedAsyncioTestCase):
         chats = await get_chats(self.users[1], self.db)
         self.assertEqual(next(chat for chat in chats if chat.id == group.id).unread_count, 0)
         with self.assertRaises(HTTPException):
-            await send_message(group.id, MessageCreate(content="Unauthorized"), self.users[3], self.db)
+            await send_message(group.id, BackgroundTasks(), MessageCreate(content="Unauthorized"), self.users[3], self.db)
 
     async def test_invalid_participants_and_name(self):
         for ids in ([self.users[1].id] * 2, [self.users[0].id, self.users[1].id], [self.users[1].id, uuid.uuid4()]):
@@ -108,12 +108,17 @@ class GroupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(visible.username, username)
         self.assertEqual(visible.description, "Team description")
 
-    async def test_members_and_outsiders_cannot_edit_group(self):
+    async def test_members_outsiders_and_site_admin_cannot_edit_group(self):
         group = await self.make_group()
         for user, code in ((self.users[1], 403), (self.users[3], 404)):
             with self.assertRaises(HTTPException) as error:
                 await update_group(group.id, GroupDetails(name="Unauthorized"), user, self.db)
             self.assertEqual(error.exception.status_code, code)
+        self.users[1].is_admin = True
+        await self.db.flush()
+        with self.assertRaises(HTTPException) as error:
+            await update_group(group.id, GroupDetails(name="Still unauthorized"), self.users[1], self.db)
+        self.assertEqual(error.exception.status_code, 403)
 
     async def test_group_username_unique_and_profile_validation(self):
         username = "group_" + uuid.uuid4().hex[:16]
