@@ -5,7 +5,8 @@ import com.google.firebase.messaging.RemoteMessage;
 
 public class MessengerMessagingService extends FirebaseMessagingService {
     @Override public void onMessageReceived(RemoteMessage message) {
-        PushNotifications.show(this, message.getData());
+        if (message.getData().getOrDefault("type", "").startsWith("call.")) IncomingCalls.receive(this, message.getData());
+        else PushNotifications.show(this, message.getData());
     }
 
     @Override public void onNewToken(String token) {

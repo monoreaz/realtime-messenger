@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
         WebSettings config = web.getSettings();
         config.setJavaScriptEnabled(true);
         config.setDomStorageEnabled(true);
+        config.setMediaPlaybackRequiresUserGesture(false);
         config.setAllowFileAccess(false);
         config.setAllowContentAccess(true);
         config.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -89,6 +90,21 @@ public class MainActivity extends Activity {
         pushBridge = new PushBridge(this, web);
         pushBridge.install(server);
         web.setWebViewClient(new WebViewClient() {
+            @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                android.util.Log.e("Messenger", "WebView renderer exited; crashed=" + detail.didCrash());
+                audioRequest = null;
+                finishFiles(null);
+                pushBridge = null;
+                stopService(new Intent(MainActivity.this, CallAudioService.class));
+                if (view.getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) view.getParent()).removeView(view);
+                web = null;
+                view.destroy();
+                toolbar.setVisibility(View.GONE);
+                ((TextView) errorPanel.getChildAt(0)).setText("The app window stopped unexpectedly. Tap Try again to reopen Messenger. Your account and chats are kept.");
+                errorPanel.setVisibility(View.VISIBLE);
+                progress.setVisibility(View.GONE);
+                return true;
+            }
             @Override public void onPageFinished(WebView view, String url) {
                 if (!trusted(Uri.parse(url))) return;
                 view.evaluateJavascript("(function(){if(window.messengerChromeObserver)window.messengerChromeObserver.disconnect();"
@@ -136,10 +152,10 @@ public class MainActivity extends Activity {
             @Override public void onPermissionRequest(PermissionRequest request) {
                 if (!trusted(request.getOrigin()) || !Arrays.asList(request.getResources()).contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) { request.deny(); return; }
                 if (audioRequest != null) { request.deny(); return; }
+                audioRequest = request;
                 if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                    request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+                    grantAudioWhenReady();
                 } else {
-                    audioRequest = request;
                     requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_REQUEST);
                 }
             }
@@ -161,6 +177,31 @@ public class MainActivity extends Activity {
         }
     }
 
+    void offerCallScreenPermission() {
+        if (android.os.Build.VERSION.SDK_INT < 34 || !PushNotifications.foreground
+            || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            || getSystemService(android.app.NotificationManager.class).canUseFullScreenIntent()
+            || PushNotifications.preferences(this).getBoolean("callScreenAsked", false)) return;
+        PushNotifications.preferences(this).edit().putBoolean("callScreenAsked", true).apply();
+        new AlertDialog.Builder(this).setTitle("Incoming call screen")
+            .setMessage("Allow Messenger to show incoming calls over the lock screen? You can change this later in Server settings → Notifications.")
+            .setNegativeButton("Not now", null).setPositiveButton("Open settings", (dialog, which) -> openCallScreenSettings()).show();
+    }
+    private void openCallScreenSettings() {
+        if (android.os.Build.VERSION.SDK_INT >= 34) startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + getPackageName())));
+    }
+    private void showNotificationSettings() {
+        if (android.os.Build.VERSION.SDK_INT < 34) {
+            startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName()));
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("Notifications")
+            .setItems(new String[]{"Messages and call sounds", "Incoming call screen"}, (dialog, which) -> {
+                if (which == 1) openCallScreenSettings();
+                else startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName()));
+            }).show();
+    }
+
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
     private boolean trusted(Uri uri) {
@@ -170,15 +211,16 @@ public class MainActivity extends Activity {
     }
     private int effectivePort(Uri uri) { return uri.getPort() == -1 ? 443 : uri.getPort(); }
     private void loadServer() {
+        if (web == null) { recreate(); return; }
         toolbar.setVisibility(View.VISIBLE); errorPanel.setVisibility(View.GONE); web.setVisibility(View.VISIBLE); web.loadUrl(server);
     }
-    private void showError() { toolbar.setVisibility(View.VISIBLE); errorPanel.setVisibility(View.VISIBLE); web.setVisibility(View.GONE); }
+    private void showError() { if (web == null) return; toolbar.setVisibility(View.VISIBLE); errorPanel.setVisibility(View.VISIBLE); web.setVisibility(View.GONE); }
     private void showServerSettings() {
         EditText input = new EditText(this);
         input.setSingleLine(true); input.setInputType(17); input.setText(server);
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Server address")
             .setMessage("Enter your Messenger HTTPS address. Changing servers requires signing in again.")
-            .setNeutralButton("Notifications", (d, which) -> startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())))
+            .setNeutralButton("Notifications", (d, which) -> showNotificationSettings())
             .setView(input).setNegativeButton("Cancel", null).setPositiveButton("Connect", null).create();
         dialog.setOnShowListener(v -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
             String value = input.getText().toString().trim();
@@ -191,10 +233,12 @@ public class MainActivity extends Activity {
             if (!next.equals(server)) {
                 PushNotifications.bind(this, next, "");
                 PushNotifications.activeChat = "";
+                if (web == null) { dialog.dismiss(); return; }
                 web.stopLoading();
                 if (audioRequest != null) { audioRequest.deny(); audioRequest = null; }
                 finishFiles(null);
                 CookieManager.getInstance().removeAllCookies(done -> {
+                    if (web == null) return;
                     CookieManager.getInstance().flush();
                     WebStorage.getInstance().deleteAllData(); web.clearCache(true); web.clearHistory();
                     server = next; pushBridge.install(server); getPreferences(MODE_PRIVATE).edit().putString("server", server).apply(); loadServer();
@@ -211,29 +255,54 @@ public class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
+        if (request == 12 && web != null) web.evaluateJavascript("window.dispatchEvent(new Event('messenger-push-sync'))", null);
         if (request == AUDIO_REQUEST && audioRequest != null) {
-            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED && trusted(audioRequest.getOrigin())) audioRequest.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
-            else audioRequest.deny();
-            audioRequest = null;
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) grantAudioWhenReady();
+            else { audioRequest.deny(); audioRequest = null; }
         }
     }
-    @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
+    private void grantAudioWhenReady() {
+        if (audioRequest == null || !PushNotifications.foreground || !hasWindowFocus()) return;
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return;
+        PermissionRequest request = audioRequest;
+        audioRequest = null;
+        if (trusted(request.getOrigin())) request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+        else request.deny();
+    }
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (focused) grantAudioWhenReady();
+    }
+    @Override public void onBackPressed() { if (web != null && web.canGoBack()) web.goBack(); else super.onBackPressed(); }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event('messenger-push-sync'))", null);
     }
+    @Override protected void onStart() {
+        super.onStart();
+        PushNotifications.foreground = true;
+        IncomingCalls.refreshPresentation(this);
+    }
+    @Override protected void onStop() {
+        PushNotifications.foreground = false;
+        IncomingCalls.refreshPresentation(this);
+        super.onStop();
+    }
     @Override protected void onResume() {
         super.onResume();
         PushNotifications.foreground = true;
+        IncomingCalls.refreshPresentation(this);
+        grantAudioWhenReady();
+        if (pushBridge != null) pushBridge.resumeCallAudio();
         if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event('messenger-push-sync'))", null);
     }
     @Override protected void onPause() {
-        PushNotifications.foreground = false;
         CookieManager.getInstance().flush(); super.onPause();
     }
     @Override protected void onDestroy() {
         finishFiles(null); if (audioRequest != null) audioRequest.deny();
-        web.destroy(); super.onDestroy();
+        stopService(new Intent(this, CallAudioService.class));
+        if (web != null) web.destroy(); super.onDestroy();
     }
 }

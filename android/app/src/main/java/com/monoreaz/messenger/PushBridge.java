@@ -17,6 +17,17 @@ final class PushBridge {
     private final MainActivity activity;
     private final WebView web;
     private boolean installed;
+    private String pendingMediaUser = "", pendingMediaBinding = "";
+
+    void resumeCallAudio() {
+        if (!PushNotifications.foreground || pendingMediaUser.isEmpty()) return;
+        if (PushNotifications.matches(activity, pendingMediaUser, pendingMediaBinding)
+            && activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            try { activity.startForegroundService(new Intent(activity, CallAudioService.class)); }
+            catch (RuntimeException ignored) { return; }
+        }
+        pendingMediaUser = pendingMediaBinding = "";
+    }
 
     PushBridge(MainActivity activity, WebView web) { this.activity = activity; this.web = web; }
 
@@ -28,6 +39,21 @@ final class PushBridge {
                 if (!mainFrame) return;
                 try {
                     JSONObject request = new JSONObject(message.getData());
+                    if ("call.state".equals(request.optString("type"))) {
+                        String id = request.optString("callId", "");
+                        IncomingCalls.clear(activity, id);
+                        if (request.optBoolean("media")) {
+                            pendingMediaUser = PushNotifications.preferences(activity).getString("user", "");
+                            pendingMediaBinding = PushNotifications.preferences(activity).getString("binding", "");
+                            // An Answer intent can reach the WebView before onResume.
+                            // Keep the request until Android permits starting the microphone service.
+                            resumeCallAudio();
+                        } else {
+                            pendingMediaUser = pendingMediaBinding = "";
+                            activity.stopService(new Intent(activity, CallAudioService.class));
+                        }
+                        return;
+                    }
                     String user = request.optString("userId", "");
                     if (!user.isEmpty()) java.util.UUID.fromString(user);
                     String binding = PushNotifications.bind(activity, server, user);
@@ -43,7 +69,16 @@ final class PushBridge {
                         PushNotifications.preferences(activity).edit().putBoolean("permissionAsked", true).apply();
                         activity.requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 12);
                     }
+                    activity.offerCallScreenPermission();
                     Intent intent = activity.getIntent();
+                    if (user.equals(intent.getStringExtra("push_user")) && binding.equals(intent.getStringExtra("push_binding")) && intent.hasExtra("push_call")) {
+                        String id = intent.getStringExtra("push_call");
+                        IncomingCalls.clear(activity, id);
+                        reply.postMessage(new JSONObject().put("userId", user).put("callId", id)
+                            .put("peerId", intent.getStringExtra("push_peer"))
+                            .put("callAction", intent.getStringExtra("push_call_action")).toString());
+                        intent.removeExtra("push_call");
+                    }
                     if (user.equals(intent.getStringExtra("push_user")) && binding.equals(intent.getStringExtra("push_binding")) && intent.hasExtra("push_chat")) {
                         reply.postMessage(new JSONObject().put("userId", user).put("openChatId", intent.getStringExtra("push_chat")).toString());
                         intent.removeExtra("push_chat");
@@ -51,7 +86,11 @@ final class PushBridge {
                     FirebaseMessaging.getInstance().getToken().addOnSuccessListener(activity, token -> {
                         if (!PushNotifications.matches(activity, user, binding)) return;
                         try {
-                            JSONObject response = new JSONObject().put("token", token).put("binding", binding).put("userId", user);
+                            NotificationManager manager = activity.getSystemService(NotificationManager.class);
+                            android.app.NotificationChannel channel = manager.getNotificationChannel(IncomingCalls.CHANNEL);
+                            boolean canNotify = manager.areNotificationsEnabled()
+                                && (channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE);
+                            JSONObject response = new JSONObject().put("token", token).put("binding", binding).put("userId", user).put("callsSupported", canNotify);
                             reply.postMessage(response.toString());
                         } catch (org.json.JSONException ignored) { }
                     });

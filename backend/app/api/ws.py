@@ -8,12 +8,17 @@ from app.realtime.call_history import save_call_message
 
 from fastapi import (
     APIRouter,
+    HTTPException,
     WebSocket,
     WebSocketDisconnect,
     status,
 )
 from jwt.exceptions import InvalidTokenError
 from sqlalchemy import select
+from pydantic import BaseModel, Field
+from app.models.auth_session import AuthSession
+from app.models.push_device import PushDevice
+from app.services.call_push import can_receive_call_push, deliver_call_push, decode_decline_token
 
 from app.core.security import decode_access_token
 from app.database import AsyncSessionLocal
@@ -153,6 +158,8 @@ async def websocket_endpoint(
             "online_user_ids": online_peer_ids,
         }
     )
+
+    await replay_ringing_calls(websocket, user.id)
 
     if became_online:
         await manager.send_to_users(
@@ -296,13 +303,70 @@ active_calls: dict[str, tuple[uuid.UUID, uuid.UUID, WebSocket, WebSocket | None]
 
 
 call_started: dict[str, tuple[float, str]] = {}
+ringing_calls: dict[str, dict] = {}
+call_push_tasks: set[asyncio.Task] = set()
+
+
+def schedule_call_push(user_id, event, call_id, info):
+    task = asyncio.create_task(deliver_call_push(user_id, event, call_id, dict(info)))
+    call_push_tasks.add(task)
+    task.add_done_callback(call_push_tasks.discard)
+
+
+async def replay_ringing_calls(websocket, user_id, requested_id=None):
+    found = False
+    for call_id, call in list(active_calls.items()):
+        info = ringing_calls.get(call_id)
+        if (call[1] != user_id or call[3] is not None or info is None
+            or (requested_id is not None and requested_id != call_id)):
+            continue
+        if info["expires_at"] <= datetime.now(timezone.utc).timestamp():
+            continue
+        found = True
+        await websocket.send_json(info["offer"])
+        for candidate in info["candidates"]:
+            await websocket.send_json(candidate)
+    if requested_id is not None and not found:
+        await websocket.send_json({"type": "call.end", "call_id": requested_id, "reason": "ended"})
+
+
+class DeclineCall(BaseModel):
+    token: str = Field(min_length=20, max_length=4096)
+
+
+@router.post("/calls/{call_id}/decline", status_code=204)
+async def decline_push_call(call_id: uuid.UUID, body: DeclineCall):
+    try:
+        claims = decode_decline_token(body.token)
+        if claims["call_id"] != str(call_id):
+            raise ValueError()
+        user_id = uuid.UUID(claims["sub"])
+        session_id = uuid.UUID(claims["session_id"])
+    except (InvalidTokenError, ValueError, TypeError, KeyError):
+        raise HTTPException(status_code=401, detail="Invalid call action")
+    async with AsyncSessionLocal() as db:
+        device = await db.scalar(select(PushDevice).join(AuthSession).join(User).where(
+            PushDevice.session_id == session_id, PushDevice.binding == claims["binding"],
+            PushDevice.call_notifications.is_(True),
+            AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > datetime.now(timezone.utc), User.is_blocked.is_(False),
+        ))
+    if device is None:
+        raise HTTPException(status_code=401, detail="Call session is no longer active")
+    call = active_calls.get(str(call_id))
+    if call is not None and call[1] == user_id and call[3] is None:
+        await finish_call(str(call_id), "declined")
+
 
 
 async def finish_call(call_id: str, reason: str) -> None:
     call = active_calls.pop(call_id, None)
     started = call_started.pop(call_id, None)
+    info = ringing_calls.pop(call_id, None)
     if call is None:
         return
+    if info is not None:
+        schedule_call_push(call[1], "call.dismiss", call_id, info)
     duration = max(0, int(monotonic() - started[0])) if started else None
     await manager.send_to_users(list(call[:2]), {
         "type": "call.end", "call_id": call_id, "reason": reason,
@@ -320,6 +384,13 @@ async def expire_call(call_id: str) -> None:
 
 async def handle_call_signal(websocket: WebSocket, user: User, data: dict) -> None:
     event = data.get("type")
+    if event == "call.resume":
+        try:
+            requested_id = str(uuid.UUID(data.get("call_id")))
+        except (ValueError, TypeError, AttributeError):
+            return
+        await replay_ringing_calls(websocket, user.id, requested_id)
+        return
     if event not in {"call.offer", "call.answer", "call.ice", "call.end", "call.connected"}:
         return
     try:
@@ -351,13 +422,20 @@ async def handle_call_signal(websocket: WebSocket, user: User, data: dict) -> No
             ))
         if private_chat is None:
             return
-        reason = "offline" if not manager.is_online(peer_id) else None
+        reason = "offline" if not manager.is_online(peer_id) and not await can_receive_call_push(peer_id) else None
         if any(user.id in item[:2] or peer_id in item[:2] for item in active_calls.values()):
             reason = "busy"
         if reason:
             await websocket.send_json({"type": "call.end", "call_id": call_id, "reason": reason})
             return
         active_calls[call_id] = (user.id, peer_id, websocket, None)
+        expires_at = datetime.now(timezone.utc).timestamp() + 60
+        ringing_calls[call_id] = {"chat_id": private_chat, "caller_id": user.id,
+            "name": user.display_name or user.username, "expires_at": expires_at,
+            "candidates": [], "offer": {"type": "call.offer", "call_id": call_id,
+                "user_id": str(user.id), "name": user.display_name or user.username,
+                "sdp": data["sdp"], "expires_at": int(expires_at * 1000)}}
+        schedule_call_push(peer_id, "call.incoming", call_id, ringing_calls[call_id])
         asyncio.create_task(expire_call(call_id))
     else:
         if not call or {user.id, peer_id} != set(call[:2]):
@@ -369,7 +447,12 @@ async def handle_call_signal(websocket: WebSocket, user: User, data: dict) -> No
         if event == "call.answer":
             if user.id != call[1] or call[3] is not None:
                 return
+            if call_id in ringing_calls and ringing_calls[call_id]["expires_at"] <= datetime.now(timezone.utc).timestamp():
+                await finish_call(call_id, "timeout")
+                return
             active_calls[call_id] = (call[0], call[1], call[2], websocket)
+            if call_id in ringing_calls:
+                schedule_call_push(call[1], "call.dismiss", call_id, ringing_calls[call_id])
             for other in list(manager.active_connections.get(user.id, [])):
                 if other is not websocket:
                     await other.send_json({"type": "call.end", "call_id": call_id})
@@ -390,11 +473,16 @@ async def handle_call_signal(websocket: WebSocket, user: User, data: dict) -> No
             return
     payload = {"type": event, "call_id": call_id, "user_id": str(user.id)}
     if event == "call.offer":
+        payload["expires_at"] = int(ringing_calls[call_id]["expires_at"] * 1000)
         payload["name"] = user.display_name or user.username
     for key in ("sdp", "candidate", "reason"):
         if key in data:
             payload[key] = data[key]
     call = active_calls.get(call_id)
+    if event == "call.ice" and call and user.id == call[0] and call[3] is None:
+        info = ringing_calls.get(call_id)
+        if info is not None and len(info["candidates"]) < 128:
+            info["candidates"].append(payload)
     target = None if not call else (call[2] if peer_id == call[0] else call[3])
     if target is not None:
         await target.send_json(payload)

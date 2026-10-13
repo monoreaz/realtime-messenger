@@ -1,0 +1,24 @@
+# Copy to secrets/turnserver.conf and replace both placeholders.
+# Put the identical SHARED_SECRET into secrets/turn-secret (one line).
+listening-ip=TAILSCALE_IP
+relay-ip=TAILSCALE_IP
+listening-port=3478
+min-port=49160
+max-port=49259
+fingerprint
+use-auth-secret
+static-auth-secret=SHARED_SECRET
+realm=messenger
+no-cli
+no-tls
+no-dtls
+no-multicast-peers
+no-tcp-relay
+user-quota=12
+total-quota=120
+max-bps=128000
+bps-capacity=15360000
+denied-peer-ip=0.0.0.0-255.255.255.255
+allowed-peer-ip=TAILSCALE_IP
+log-file=stdout
+simple-log

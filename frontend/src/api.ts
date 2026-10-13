@@ -1023,11 +1023,21 @@ export async function updateGroupProfile(token: string, chatId: string, data: { 
     return response.json();
 }
 
-export async function registerPushDevice(accessToken: string, token: string, binding: string): Promise<void> {
+export async function registerPushDevice(accessToken: string, token: string, binding: string, callNotifications = false): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/push/devices`, {
         method: "POST", credentials: "include",
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ token, binding }),
+        body: JSON.stringify({ token, binding, call_notifications: callNotifications }),
     });
     if (!response.ok) throw new Error("Could not register notifications");
+}
+
+export async function getCallIceServers(token: string): Promise<RTCIceServer[]> {
+    const response = await fetch(`${API_BASE_URL}/calls/ice`, {
+        headers: { Authorization: `Bearer ${token}` }, cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error("Could not prepare the call connection. Please try again.");
+    const data = await response.json();
+    return data.iceServers;
 }

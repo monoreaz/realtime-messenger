@@ -270,6 +270,7 @@ function App() {
     const [loggingOutOthers, setLoggingOutOthers] = useState(false);
 
     const [error, setError] = useState("");
+    const [socketAttempt, setSocketAttempt] = useState(0);
     const [wsStatus, setWsStatus] = useState<WebSocketStatus>("disconnected");
 
     const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(
@@ -326,7 +327,7 @@ function App() {
     const [showScrollToLatest, setShowScrollToLatest] = useState(false);
     const scrollToLatestOnOpenRef = useRef(false);
     const websocketRef = useRef<WebSocket | null>(null);
-    const audioCall = useAudioCall(websocketRef, wsStatus === "connected");
+    const audioCall = useAudioCall(websocketRef, wsStatus === "connected", token);
 
     const typingTimeoutRef = useRef< ReturnType<typeof setTimeout> | null >(null);
 
@@ -1129,6 +1130,9 @@ function App() {
             return;
         }
 
+        let disposed = false;
+        let retryTimer: number | undefined;
+        let pongTimer: number | undefined;
         const currentUserId = user.id;
         const websocket = createWebSocket();
 
@@ -1146,6 +1150,10 @@ function App() {
 
         websocket.addEventListener("message", (event) => {
             const data = JSON.parse(event.data);
+            if (data.type === "pong") {
+                window.clearTimeout(pongTimer); pongTimer = undefined;
+                return;
+            }
             if (data.type === "account.blocked") {
                 setAdminPanelOpen(false);
                 setToken(null);
@@ -1160,6 +1168,7 @@ function App() {
 
             if (data.type === "connection.ready") {
                 setWsStatus("connected");
+                window.dispatchEvent(new Event("messenger-push-sync"));
                 return;
             }
 
@@ -1498,14 +1507,32 @@ function App() {
         });
 
         websocket.addEventListener("close", () => {
+            if (disposed) return;
             setWsStatus("disconnected");
+            retryTimer = window.setTimeout(() => setSocketAttempt(value => value + 1), 3000);
         });
 
         websocket.addEventListener("error", () => {
             setWsStatus("disconnected");
         });
 
+        const resume = () => {
+            if (websocket.readyState === WebSocket.CLOSED) {
+                window.clearTimeout(retryTimer);
+                setSocketAttempt(value => value + 1);
+            } else if (websocket.readyState === WebSocket.OPEN && pongTimer === undefined) {
+                websocket.send(JSON.stringify({ type: "ping" }));
+                pongTimer = window.setTimeout(() => websocket.close(), 5000);
+            }
+        };
+        window.addEventListener("messenger-push-sync", resume);
+        window.addEventListener("online", resume);
         return () => {
+            disposed = true;
+            window.clearTimeout(retryTimer);
+            window.clearTimeout(pongTimer);
+            window.removeEventListener("messenger-push-sync", resume);
+            window.removeEventListener("online", resume);
             stopTyping();
             websocket.close();
 
@@ -1513,7 +1540,7 @@ function App() {
                 websocketRef.current = null;
             }
         };
-    }, [token, user?.id]);
+    }, [token, user?.id, socketAttempt]);
 
 
     async function handleAuthSubmit(

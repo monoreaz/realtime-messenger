@@ -7,6 +7,13 @@
         reverse_proxy backend:8000
     }
 
+    handle /downloads/*.apk {
+        reverse_proxy frontend:5173 {
+            header_down Content-Type application/vnd.android.package-archive
+            header_down Content-Disposition attachment
+        }
+    }
+
     handle {
         reverse_proxy frontend:5173
     }

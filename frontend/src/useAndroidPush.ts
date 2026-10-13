@@ -31,15 +31,18 @@ export function useAndroidPush(
         let registering = false;
         bridge.onmessage = (event) => {
             if (disposed) return;
-            let data: { userId?: string; token?: string; binding?: string; openChatId?: string };
+            let data: { userId?: string; token?: string; binding?: string; openChatId?: string; callId?: string; peerId?: string; callAction?: string; callsSupported?: boolean };
             try { data = JSON.parse(event.data); } catch { return; }
             if (data.userId !== userId) return;
+            if (data.callId && data.callAction) window.dispatchEvent(new CustomEvent("messenger-call-action", {
+                detail: { callId: data.callId, peerId: data.peerId, action: data.callAction },
+            }));
             if (data.openChatId) void openChatRef.current(data.openChatId);
             if (!data.token || !data.binding) return;
-            const key = `${userId}:${data.token}:${data.binding}:${token}`;
+            const key = `${userId}:${data.token}:${data.binding}:${data.callsSupported === true}:${token}`;
             if (registered.current === key || registering) return;
             registering = true;
-            void registerPushDevice(token, data.token, data.binding).then(() => {
+            void registerPushDevice(token, data.token, data.binding, data.callsSupported === true).then(() => {
                 if (!disposed) registered.current = key;
             }).catch(() => {
                 // Resume, session refresh and the timer retry transient failures.

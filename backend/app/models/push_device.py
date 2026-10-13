@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
+from sqlalchemy import Boolean, false, DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -10,6 +10,7 @@ from app.database import Base
 class PushDevice(Base):
     __tablename__ = "push_devices"
 
+    call_notifications: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     token: Mapped[str] = mapped_column(String(2048), primary_key=True)
     session_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("auth_sessions.id", ondelete="CASCADE"), index=True,

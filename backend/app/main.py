@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
 
+from app.api.calls import router as calls_router
 from app.api.push import router as push_router
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
@@ -68,6 +69,7 @@ app.add_middleware(
     ],
 )
 
+app.include_router(calls_router)
 app.include_router(push_router)
 app.include_router(admin_router)
 app.include_router(auth_router)

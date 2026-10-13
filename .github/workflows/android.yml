@@ -34,7 +34,7 @@ jobs:
             mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
             yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
             "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" >/dev/null
-            gradle --no-daemon :app:assembleDebug :app:lintDebug
+            gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
           '
       - uses: actions/upload-artifact@v4
         with:

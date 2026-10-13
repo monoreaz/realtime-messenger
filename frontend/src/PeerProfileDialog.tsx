@@ -40,3 +40,4 @@ export function PeerProfileDialog({ user, onClose }: { user: User; onClose: () =
         </dialog>
     );
 }
+

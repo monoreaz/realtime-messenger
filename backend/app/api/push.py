@@ -21,6 +21,7 @@ router = APIRouter(prefix="/push", tags=["push"])
 class DeviceRegistration(BaseModel):
     token: str = Field(min_length=20, max_length=2048, pattern=r"^\S+$")
     binding: uuid.UUID
+    call_notifications: bool = False
 
 
 @router.post("/devices", status_code=204)
@@ -43,7 +44,7 @@ async def register_device(
     await db.execute(delete(PushDevice).where(
         PushDevice.session_id == session.id, PushDevice.token != data.token,
     ))
-    values = dict(session_id=session.id, binding=str(data.binding), updated_at=datetime.now(timezone.utc))
+    values = dict(call_notifications=data.call_notifications, session_id=session.id, binding=str(data.binding), updated_at=datetime.now(timezone.utc))
     await db.execute(insert(PushDevice).values(token=data.token, **values).on_conflict_do_update(
         index_elements=[PushDevice.token], set_=values,
     ))

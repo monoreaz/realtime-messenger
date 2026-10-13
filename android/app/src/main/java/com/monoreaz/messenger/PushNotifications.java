@@ -27,6 +27,8 @@ final class PushNotifications {
     static synchronized String bind(Context context, String server, String user) {
         SharedPreferences prefs = preferences(context);
         if (!server.equals(prefs.getString("server", "")) || !user.equals(prefs.getString("user", ""))) {
+            IncomingCalls.clear(context, IncomingCalls.current(context).optString("call_id"));
+            context.stopService(new Intent(context, CallAudioService.class));
             context.getSystemService(NotificationManager.class).cancelAll();
             prefs.edit().putString("server", server).putString("user", user)
                 .putString("binding", user.isEmpty() ? "" : UUID.randomUUID().toString()).apply();
