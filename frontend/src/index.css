@@ -329,9 +329,17 @@ textarea::placeholder {
     user-select: none;
 }
 
+/*
+ * Photos are positioned absolutely so they always fill the circle. A percentage height on a
+ * grid item is resolved differently across engines (Firefox/WebKit can fall back to the
+ * photo's intrinsic size, e.g. 640px), which made avatars overflow their circle.
+ */
 .avatar > img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
+    max-width: none;
     object-fit: cover;
     border-radius: inherit;
 }
