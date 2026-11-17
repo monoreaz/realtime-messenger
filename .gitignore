@@ -15,3 +15,6 @@ dist/
 
 /android/app/google-services.json
 /secrets/
+
+# Local backup copies
+*.bak
