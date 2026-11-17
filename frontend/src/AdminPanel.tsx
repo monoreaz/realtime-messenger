@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { getAdminStats, getAdminUsers, setAdminUserBlocked } from "./api";
 import type { AdminStats, AdminUser } from "./api";
 import "./AdminPanel.css";
+import { Icon } from "./Icon";
 
 const PAGE_SIZE = 25;
 
@@ -84,7 +85,7 @@ export function AdminPanel({ token, currentUserId, onClose }: {
     }}>
         <header className="admin-header">
             <div><span className="admin-eyebrow">MESSENGER</span><h2 id="admin-title">Admin panel</h2><p>Overview and account management</p></div>
-            <button type="button" className="admin-close" aria-label="Close admin panel" disabled={saving} onClick={onClose}>×</button>
+            <button type="button" className="admin-close icon-button" aria-label="Close admin panel" disabled={saving} onClick={onClose}><Icon name="close" /></button>
         </header>
         {error && <p className="admin-error" role="alert">{error} <button type="button" onClick={() => void refresh()} disabled={loading || saving}>Retry</button></p>}
         {notice && <p className="admin-notice" role="status">{notice}</p>}

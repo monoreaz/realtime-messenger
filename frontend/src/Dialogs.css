@@ -1,0 +1,686 @@
+/* ==========================================================================
+   Native <dialog> surfaces: group creation, group/peer profiles,
+   pinned messages and audio calls. The admin panel and group profile
+   dialog add their own component styles on top of this base.
+   ========================================================================== */
+
+:is(.group-dialog, .group-profile-dialog, .peer-profile-dialog, .pinned-list-dialog, .audio-call-dialog, .admin-panel) {
+    max-height: calc(100dvh - 32px);
+    padding: 0;
+    overflow: auto;
+    border: 1px solid var(--line-strong);
+    border-radius: 22px;
+    background: rgba(26, 26, 29, 0.9);
+    color: var(--text-1);
+    box-shadow: var(--highlight), var(--shadow-window);
+    color-scheme: dark;
+    -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(1.1);
+    backdrop-filter: blur(var(--blur-lg)) saturate(1.1);
+}
+
+:is(.group-dialog, .group-profile-dialog, .peer-profile-dialog, .pinned-list-dialog, .audio-call-dialog, .admin-panel)[open] {
+    animation: pop-in var(--duration-slow) var(--ease-out);
+}
+
+:is(.group-dialog, .group-profile-dialog, .peer-profile-dialog, .pinned-list-dialog, .audio-call-dialog, .admin-panel)::backdrop {
+    /* Dim only: blurring the full screen behind a modal is very costly to render. */
+    background: rgba(6, 6, 8, 0.62);
+    animation: fade-in var(--duration) ease;
+}
+
+:is(.group-dialog, .group-profile-dialog, .peer-profile-dialog, .pinned-list-dialog) button:disabled {
+    opacity: 0.45;
+}
+
+/* Sticky dialog header */
+.group-dialog header,
+.group-profile-header,
+.pinned-list-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 14px 14px 22px;
+    background: rgba(28, 28, 31, 0.96);
+    border-bottom: 1px solid var(--line);
+}
+
+.group-dialog header h2,
+.group-profile-header h2,
+.pinned-list-header h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 17px;
+}
+
+.dialog-count {
+    padding: 1px 8px;
+    border-radius: var(--radius-full);
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Shared dialog field styling */
+.group-dialog form > label,
+.group-profile-form > label {
+    display: grid;
+    gap: 7px;
+    margin-top: 16px;
+    color: var(--text-2);
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.group-dialog label small,
+.group-profile-form small {
+    color: var(--text-3);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.group-dialog form > label > input,
+.group-dialog textarea,
+.group-profile-form input,
+.group-profile-form textarea {
+    width: 100%;
+    min-width: 0;
+    height: 42px;
+    padding: 0 13px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 12px;
+    background: var(--surface-sunken);
+    color: var(--text-1);
+    font-size: var(--text-md);
+    font-weight: 400;
+    outline: none;
+    transition: border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
+}
+
+.group-dialog textarea,
+.group-profile-form textarea {
+    height: auto;
+    padding: 11px 13px;
+    line-height: var(--leading-normal);
+    resize: vertical;
+}
+
+.group-dialog form > label > input:focus,
+.group-dialog textarea:focus,
+.group-profile-form input:focus,
+.group-profile-form textarea:focus {
+    border-color: rgba(182, 204, 255, 0.5);
+    box-shadow: 0 0 0 3px rgba(182, 204, 255, 0.12);
+}
+
+.group-dialog form > label > input:invalid:not(:placeholder-shown),
+.group-profile-form input:invalid:not(:placeholder-shown) {
+    border-color: rgba(255, 120, 115, 0.45);
+}
+
+/* --------------------------------------------------------------------------
+   New group
+   -------------------------------------------------------------------------- */
+.group-dialog {
+    width: min(480px, calc(100vw - 24px));
+}
+
+.group-dialog form {
+    display: flex;
+    flex-direction: column;
+}
+
+.group-dialog form > :not(header) {
+    margin-inline: 22px;
+}
+
+.group-search-results {
+    max-height: 248px;
+    margin-top: 8px;
+    padding: 4px;
+    overflow-y: auto;
+    border-radius: 14px;
+    background: var(--surface-sunken);
+    border: 1px solid var(--line);
+}
+
+.group-search-results > p {
+    margin: 0;
+    padding: 10px;
+    color: var(--text-3);
+    font-size: var(--text-sm);
+}
+
+.group-search-results > p.group-contacts-title {
+    padding: 8px 10px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.group-search-results > label {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background var(--duration-fast) ease;
+}
+
+.group-search-results > label:hover {
+    background: var(--surface-2);
+}
+
+.group-search-results > label:has(input:checked) {
+    background: var(--surface-3);
+}
+
+.group-search-results > label:has(input:focus-visible) {
+    outline: 2px solid var(--line-focus);
+    outline-offset: -2px;
+}
+
+/* The checkbox stays in the accessibility tree; the round check is the visual. */
+.group-search-results input[type="checkbox"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.group-pick-avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+}
+
+.group-pick-name {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-1);
+    font-size: var(--text-md);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.group-pick-name small {
+    color: var(--text-3);
+    font-size: 12.5px;
+}
+
+.group-pick-check {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 1.5px solid var(--line-strong);
+    color: transparent;
+    transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.group-pick-check .ui-icon {
+    width: 14px;
+    height: 14px;
+    stroke-width: 2.4;
+}
+
+.group-search-results > label:has(input:checked) .group-pick-check {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--primary-text);
+}
+
+.group-search-results > label:has(input:disabled:not(:checked)) {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.group-hint {
+    margin-top: 12px;
+    color: var(--text-3);
+    font-size: 12.5px;
+}
+
+.group-selected {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.group-selected:empty {
+    display: none;
+}
+
+.group-selected button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 30px;
+    padding: 0 8px 0 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-full);
+    background: var(--surface-2);
+    color: var(--text-1);
+    font-size: var(--text-sm);
+    animation: menu-in var(--duration-fast) var(--ease-out);
+    transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.group-selected button:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+
+.group-selected .ui-icon {
+    width: 14px;
+    height: 14px;
+}
+
+.group-error,
+.group-profile-error {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 11px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-size: var(--text-sm);
+}
+
+.group-submit {
+    height: 44px;
+    margin: 18px 22px 22px !important;
+    border: 0;
+    border-radius: 12px;
+    background: var(--primary);
+    color: var(--primary-text);
+    font-weight: 600;
+    transition: background var(--duration-fast) ease, transform var(--duration-fast) ease;
+}
+
+.group-submit:hover:not(:disabled) {
+    background: var(--primary-hover);
+}
+
+.group-submit:active:not(:disabled) {
+    transform: scale(0.985);
+}
+
+/* --------------------------------------------------------------------------
+   Peer profile
+   -------------------------------------------------------------------------- */
+.peer-profile-dialog {
+    width: min(380px, calc(100vw - 24px));
+}
+
+.peer-profile-card {
+    position: relative;
+    padding: 34px 22px 22px;
+    text-align: center;
+    background: radial-gradient(120% 60% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 70%);
+}
+
+.peer-profile-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-3);
+    transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.peer-profile-close:hover {
+    background: var(--surface-2);
+    color: var(--text-1);
+}
+
+.peer-profile-avatar {
+    width: 96px;
+    height: 96px;
+    margin: 0 auto;
+    font-size: 32px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), var(--shadow-md);
+}
+
+.peer-profile-card h2 {
+    margin-top: 16px;
+    overflow-wrap: anywhere;
+    font-size: var(--text-xl);
+}
+
+.peer-profile-details {
+    margin: 22px 0 0;
+    padding: 4px 16px;
+    border-radius: 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    text-align: left;
+}
+
+.peer-profile-details dt {
+    margin-top: 12px;
+    color: var(--text-3);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.peer-profile-details dd {
+    margin: 3px 0 12px;
+    padding-bottom: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    font-size: var(--text-md);
+}
+
+.peer-profile-details dd + dt {
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+}
+
+/* --------------------------------------------------------------------------
+   Pinned messages list
+   -------------------------------------------------------------------------- */
+.pinned-list-dialog {
+    width: min(480px, calc(100vw - 24px));
+    max-height: min(640px, calc(100dvh - 40px));
+}
+
+.pinned-list {
+    margin: 0;
+    padding: 8px;
+    list-style: none;
+}
+
+.pinned-list-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--text-1);
+    text-align: left;
+    transition: background var(--duration-fast) ease;
+}
+
+.pinned-list-item:hover {
+    background: var(--surface-2);
+}
+
+.pinned-list-icon {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.pinned-list-icon .ui-icon {
+    width: 17px;
+    height: 17px;
+}
+
+.pinned-list-preview {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.pinned-list-preview > span {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    font-size: var(--text-md);
+    overflow-wrap: anywhere;
+}
+
+.pinned-list-preview time {
+    color: var(--text-3);
+    font-size: 12px;
+}
+
+.pinned-list-arrow {
+    width: 16px;
+    height: 16px;
+    color: var(--text-3);
+}
+
+.pinned-list-empty {
+    padding: 36px 24px;
+    color: var(--text-3);
+    text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   Audio call
+   -------------------------------------------------------------------------- */
+.audio-call-dialog {
+    width: min(380px, calc(100vw - 32px));
+    padding: 30px 24px 28px;
+    text-align: center;
+    background:
+        radial-gradient(120% 70% at 50% 0%, rgba(182, 204, 255, 0.1), transparent 65%),
+        rgba(24, 24, 27, 0.92);
+}
+
+.audio-call-kind {
+    color: var(--text-3);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+}
+
+.audio-call-avatar {
+    display: grid;
+    place-items: center;
+    width: 104px;
+    height: 104px;
+    margin: 22px auto 16px;
+    border-radius: 50%;
+    background: linear-gradient(160deg, #5c6170, #2c2e35);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), var(--shadow-md);
+    color: #eef0f6;
+    font-size: 34px;
+    font-weight: 600;
+}
+
+.audio-call-avatar:not(.is-connected) {
+    animation: call-ring 2s var(--ease-out) infinite;
+}
+
+.audio-call-avatar.is-connected {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 6px rgba(134, 215, 170, 0.14), var(--shadow-md);
+}
+
+@keyframes call-ring {
+    0% { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(182, 204, 255, 0.28), var(--shadow-md); }
+    100% { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 22px rgba(182, 204, 255, 0), var(--shadow-md); }
+}
+
+.audio-call-dialog h2 {
+    overflow-wrap: anywhere;
+    font-size: 22px;
+}
+
+.audio-call-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 6px;
+    color: var(--text-2);
+    font-size: var(--text-sm);
+}
+
+.audio-call-status span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--warning);
+    animation: soft-blink 1.2s ease-in-out infinite;
+}
+
+.audio-call-dialog:has(.audio-call-avatar.is-connected) .audio-call-status span {
+    background: var(--success);
+    animation: none;
+}
+
+.audio-call-duration {
+    margin: 14px 0 2px;
+    font-size: 30px;
+    font-weight: 300;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.audio-call-hint {
+    color: var(--text-3);
+    font-size: var(--text-sm);
+}
+
+.audio-call-error {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-size: var(--text-sm);
+}
+
+.audio-call-error button {
+    height: 30px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 9px;
+    background: var(--primary);
+    color: var(--primary-text);
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.audio-call-controls {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    margin-top: 26px;
+}
+
+.audio-call-control {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-2);
+    font-size: 12.5px;
+}
+
+.audio-call-control > span {
+    display: grid;
+    place-items: center;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: var(--surface-3);
+    border: 1px solid var(--line-strong);
+    color: var(--text-1);
+    transition: background var(--duration-fast) ease, transform var(--duration-fast) ease;
+}
+
+.audio-call-control .ui-icon {
+    width: 24px;
+    height: 24px;
+}
+
+.audio-call-control:hover:not(:disabled) > span {
+    background: var(--surface-4);
+}
+
+.audio-call-control:active:not(:disabled) > span {
+    transform: scale(0.94);
+}
+
+.audio-call-control.is-muted > span {
+    background: var(--primary);
+    border-color: transparent;
+    color: var(--primary-text);
+}
+
+.audio-call-control.accept > span {
+    background: #3a9e66;
+    border-color: transparent;
+    color: #fff;
+}
+
+.audio-call-control.accept:hover > span {
+    background: #45b275;
+}
+
+.audio-call-control.end > span {
+    background: var(--danger-strong);
+    border-color: transparent;
+    color: #fff;
+}
+
+.audio-call-control.end:hover > span {
+    background: #f0645c;
+}
+
+.audio-call-control:disabled {
+    opacity: 0.45;
+}
+
+.hang-up {
+    transform: rotate(135deg);
+}
+
+@media (max-width: 720px) {
+    .group-dialog form > label > input,
+    .group-dialog textarea,
+    .group-profile-form input,
+    .group-profile-form textarea {
+        font-size: 16px;
+    }
+}

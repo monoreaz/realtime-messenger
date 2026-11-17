@@ -1,3 +1,124 @@
+/* ==========================================================================
+   Design system — "graphite glass"
+   Dark, warm-neutral surfaces layered over an atmospheric backdrop.
+   Every component reads its colours, radii, shadows and motion from here.
+   ========================================================================== */
+
+:root {
+    color-scheme: dark;
+
+    /* Typography */
+    --font-sans: "Inter", "InterVariable", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+        "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --text-xs: 11.5px;
+    --text-sm: 13px;
+    --text-md: 14.5px;
+    --text-lg: 16px;
+    --text-xl: 20px;
+    --text-2xl: 26px;
+    --leading-tight: 1.25;
+    --leading-normal: 1.45;
+
+    /* Canvas */
+    --canvas: #0d0d0f;
+    --canvas-tint: rgba(9, 9, 11, 0.22);
+
+    /* Glass & surfaces (alpha over the shell) */
+    --glass-shell: rgba(21, 21, 24, 0.68);
+    --glass-panel: rgba(16, 16, 18, 0.38);
+    --glass-float: rgba(30, 30, 34, 0.74);
+    --glass-float-solid: rgba(28, 28, 31, 0.94);
+    --surface-1: rgba(255, 255, 255, 0.035);
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --surface-3: rgba(255, 255, 255, 0.09);
+    --surface-4: rgba(255, 255, 255, 0.13);
+    --surface-sunken: rgba(0, 0, 0, 0.22);
+
+    /* Lines */
+    --line: rgba(255, 255, 255, 0.07);
+    --line-strong: rgba(255, 255, 255, 0.12);
+    --line-focus: rgba(186, 208, 255, 0.55);
+    --highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+    /* Text */
+    --text-1: #f2f0ec;
+    --text-2: #bdbab4;
+    --text-3: #908d87;
+    --text-on-light: #161618;
+    --text-on-light-2: rgba(22, 22, 24, 0.58);
+
+    /* Accent & status */
+    --accent: #b6ccff;
+    --accent-strong: #8fb0f7;
+    --accent-ink: #3b63c4;
+    --accent-soft: rgba(182, 204, 255, 0.12);
+    --accent-soft-2: rgba(182, 204, 255, 0.2);
+    --success: #86d7aa;
+    --success-soft: rgba(134, 215, 170, 0.13);
+    --warning: #f0c47a;
+    --danger: #ff9592;
+    --danger-strong: #e5534b;
+    --danger-soft: rgba(255, 120, 115, 0.12);
+
+    /* Primary action: porcelain on graphite */
+    --primary: #f2efea;
+    --primary-hover: #ffffff;
+    --primary-text: #151517;
+
+    /* Message bubbles */
+    --bubble-in: rgba(255, 255, 255, 0.075);
+    --bubble-in-line: rgba(255, 255, 255, 0.06);
+    --bubble-out: #e9e5df;
+    --bubble-out-text: #18181a;
+
+    /* Radii */
+    --radius-xs: 6px;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 18px;
+    --radius-xl: 24px;
+    --radius-window: 26px;
+    --radius-full: 999px;
+
+    /* Elevation */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --shadow-md: 0 10px 28px -10px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 28px 70px -18px rgba(0, 0, 0, 0.7), 0 4px 14px rgba(0, 0, 0, 0.28);
+    --shadow-window: 0 40px 120px -30px rgba(0, 0, 0, 0.75), 0 10px 30px -10px rgba(0, 0, 0, 0.45);
+
+    /* Blur */
+    --blur-sm: 12px;
+    --blur-md: 22px;
+    --blur-lg: 40px;
+
+    /* Spacing scale */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+
+    /* Motion */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --duration-fast: 120ms;
+    --duration: 180ms;
+    --duration-slow: 280ms;
+
+    /* Layout */
+    --rail-width: 68px;
+    --sidebar-width: clamp(290px, 25vw, 360px);
+    --control-height: 42px;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
 html,
 body,
 #root {
@@ -6,4 +127,319 @@ body,
     height: 100%;
     min-height: 100vh;
     margin: 0;
+}
+
+body {
+    background: var(--canvas);
+    color: var(--text-1);
+    font-family: var(--font-sans);
+    font-size: var(--text-md);
+    line-height: var(--leading-normal);
+    font-feature-settings: "cv11", "ss01", "ss03";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+/*
+ * The atmospheric backdrop: an abstract dusk coastline seen through fog — warm haze,
+ * a low sun glow on the horizon, a quiet sea and out-of-focus dark landforms.
+ * Built from gradients only (smooth at any size, nothing to download) plus a tiny
+ * grain tile that dithers banding. It lives on a fixed layer so it never repaints
+ * with scrolling content.
+ */
+:root {
+    --atmosphere-landforms:
+        radial-gradient(48% 62% at 4% 92%, rgba(14, 14, 15, 0.96) 30%, rgba(14, 14, 15, 0) 72%),
+        radial-gradient(34% 50% at 14% 48%, rgba(26, 26, 27, 0.9) 25%, rgba(26, 26, 27, 0) 70%),
+        radial-gradient(40% 30% at 12% 0%, rgba(20, 22, 21, 0.95) 20%, rgba(20, 22, 21, 0) 70%);
+    --atmosphere-sky: linear-gradient(180deg, #34312d 0%, #57514a 40%, #6c665e 59%);
+
+    /* The sharp scene, seen around the window. */
+    --atmosphere:
+        radial-gradient(22% 0.9% at 78% 76%, rgba(222, 228, 228, 0.16), transparent),
+        radial-gradient(18% 1.1% at 86% 84%, rgba(222, 228, 228, 0.16), transparent),
+        radial-gradient(26% 0.9% at 70% 90%, rgba(222, 228, 228, 0.1), transparent),
+        var(--atmosphere-landforms),
+        radial-gradient(40% 26% at 74% 59%, rgba(196, 186, 170, 0.5), rgba(196, 186, 170, 0) 70%),
+        linear-gradient(180deg, transparent 0 59.4%, rgba(92, 100, 104, 0.95) 60.2%, rgba(58, 66, 70, 0.98) 70%, #1b1f21 100%),
+        var(--atmosphere-sky);
+
+    /*
+     * The same scene as if seen through frosted glass: highlights dissolved, horizon softened.
+     * Painting this pre-softened copy is free, whereas a live backdrop-filter over the whole
+     * window must be recomputed on every frame while messages scroll above it.
+     */
+    --atmosphere-frosted:
+        var(--atmosphere-landforms),
+        radial-gradient(46% 32% at 74% 60%, rgba(190, 180, 165, 0.4), rgba(190, 180, 165, 0) 75%),
+        linear-gradient(180deg, transparent 0 54%, rgba(84, 92, 96, 0.9) 63%, rgba(58, 66, 70, 0.96) 74%, #1b1f21 100%),
+        var(--atmosphere-sky);
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+        url("./assets/grain.svg") repeat,
+        radial-gradient(130% 100% at 50% 40%, transparent 45%, rgba(6, 6, 8, 0.45) 100%),
+        linear-gradient(var(--canvas-tint), var(--canvas-tint)),
+        var(--atmosphere),
+        var(--canvas);
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+}
+
+button {
+    cursor: pointer;
+}
+
+button:disabled {
+    cursor: default;
+}
+
+h1, h2, h3, h4 {
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: var(--leading-tight);
+}
+
+p {
+    margin: 0;
+}
+
+img {
+    display: block;
+}
+
+::selection {
+    background: rgba(182, 204, 255, 0.32);
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-3);
+    opacity: 1;
+}
+
+/* Quiet scrollbars that only appear where they are useful. */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+    -webkit-tap-highlight-color: transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: var(--radius-full);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.22);
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* --------------------------------------------------------------------------
+   Focus — always visible for keyboard users, never for pointer clicks.
+   -------------------------------------------------------------------------- */
+:focus:not(:focus-visible) {
+    outline: none;
+}
+
+:focus-visible {
+    outline: 2px solid var(--line-focus);
+    outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Shared primitives
+   -------------------------------------------------------------------------- */
+.ui-icon {
+    width: 20px;
+    height: 20px;
+    display: inline-block;
+    flex-shrink: 0;
+    vertical-align: middle;
+    pointer-events: none;
+}
+
+.brand-mark {
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+        #1d1d20;
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--highlight), var(--shadow-md);
+    color: var(--text-1);
+}
+
+.brand-mark svg {
+    width: 58%;
+    height: 58%;
+}
+
+.brand-mark.is-pulsing {
+    animation: brand-pulse 1.6s var(--ease-in-out) infinite;
+}
+
+@keyframes brand-pulse {
+    0%, 100% { opacity: 0.55; transform: scale(0.96); }
+    50% { opacity: 1; transform: scale(1); }
+}
+
+/* Letter avatars get a muted per-user tint; photos fill the circle. */
+.avatar {
+    --avatar-hue: 220;
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background:
+        linear-gradient(160deg, hsla(var(--avatar-hue), 22%, 46%, 0.95), hsla(var(--avatar-hue), 18%, 26%, 0.95));
+    color: hsl(var(--avatar-hue), 30%, 92%);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    user-select: none;
+}
+
+.avatar > img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+}
+
+.avatar-initials {
+    line-height: 1;
+}
+
+.presence-dot {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 22%;
+    height: 22%;
+    min-width: 8px;
+    min-height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 2.5px #1b1b1e;
+}
+
+.icon-button {
+    display: inline-grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-2);
+    transition: background var(--duration-fast) ease, color var(--duration-fast) ease, transform var(--duration-fast) ease;
+}
+
+.icon-button:hover:not(:disabled) {
+    background: var(--surface-2);
+    color: var(--text-1);
+}
+
+.icon-button:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+.icon-button:disabled {
+    opacity: 0.4;
+}
+
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.16);
+    border-top-color: currentColor;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.empty-icon {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    box-shadow: var(--highlight);
+}
+
+.empty-icon .ui-icon {
+    width: 24px;
+    height: 24px;
+}
+
+/* Shared keyframes for overlays */
+@keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes pop-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes menu-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes rise-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 1ms !important;
+        scroll-behavior: auto !important;
+    }
 }

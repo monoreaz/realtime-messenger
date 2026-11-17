@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getMediaUrl, type User } from "./api";
+import { avatarInitials, avatarStyle } from "./avatar";
+import { Icon } from "./Icon";
 
 export function PeerProfileDialog({ user, onClose }: { user: User; onClose: () => void }) {
     const dialogRef = useRef<HTMLDialogElement | null>(null);
@@ -27,8 +29,8 @@ export function PeerProfileDialog({ user, onClose }: { user: User; onClose: () =
                     onClick={onClose}
                     aria-label="Close profile"
                     autoFocus
-                >×</button>
-                <div className="peer-profile-avatar">{getMediaUrl(user.avatar_url) ? <img src={getMediaUrl(user.avatar_url)!} alt="" /> : user.username.charAt(0).toUpperCase()}</div>
+                ><Icon name="close" /></button>
+                <div className="avatar peer-profile-avatar" style={avatarStyle(user.id)}>{getMediaUrl(user.avatar_url) ? <img src={getMediaUrl(user.avatar_url)!} alt="" /> : <span className="avatar-initials">{avatarInitials(user.display_name?.trim() || user.username)}</span>}</div>
                 <h2 id="peer-profile-title">{user.display_name?.trim() || user.username}</h2>
                 <dl className="peer-profile-details">
                     <dt>Username</dt>

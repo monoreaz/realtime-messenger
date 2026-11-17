@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Message } from "./api";
+import { Icon } from "./Icon";
 
 type Props = {
     messages: Message[];
@@ -24,8 +25,8 @@ export function PinnedMessagesDialog({ messages, onClose, onSelect }: Props) {
             onCancel={onClose}
             onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
             <header className="pinned-list-header">
-                <h2 id="pinned-list-title">Pinned messages · {messages.length}</h2>
-                <button type="button" onClick={onClose} aria-label="Close pinned messages" autoFocus>×</button>
+                <h2 id="pinned-list-title">Pinned messages <span className="dialog-count">{messages.length}</span></h2>
+                <button className="icon-button" type="button" onClick={onClose} aria-label="Close pinned messages" autoFocus><Icon name="close" /></button>
             </header>
             {ordered.length === 0 ? <p className="pinned-list-empty">No pinned messages.</p> : (
                 <ul className="pinned-list">
@@ -36,12 +37,12 @@ export function PinnedMessagesDialog({ messages, onClose, onSelect }: Props) {
                                 onClose();
                                 onSelect(message.id);
                             }}>
-                                <span aria-hidden="true">📌</span>
+                                <span className="pinned-list-icon" aria-hidden="true"><Icon name="pin" /></span>
                                 <span className="pinned-list-preview">
                                     <span>{message.content || (message.image_url ? "Photo" : "Video")}</span>
                                     <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}</time>
                                 </span>
-                                <span aria-hidden="true">›</span>
+                                <Icon name="chevronRight" className="pinned-list-arrow" />
                             </button>
                         </li>
                     ))}

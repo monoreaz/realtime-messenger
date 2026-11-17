@@ -3,6 +3,8 @@ import type { FormEvent } from "react";
 import { getMediaUrl, setAdminUserBlocked, updateGroupProfile } from "./api";
 import { PeerProfileDialog } from "./PeerProfileDialog";
 import type { Chat } from "./api";
+import { avatarInitials, avatarStyle } from "./avatar";
+import { Icon } from "./Icon";
 import "./GroupProfileDialog.css";
 
 export function GroupProfileDialog({ chat, token, currentUserId, isSiteAdmin, onClose, onUpdated }: {
@@ -58,7 +60,7 @@ export function GroupProfileDialog({ chat, token, currentUserId, isSiteAdmin, on
         if (saving || editing) { event.preventDefault(); if (!saving) setEditing(false); }
         else onClose();
     }}>
-        <header className="group-profile-header"><h2 id="group-profile-title">{editing ? "Edit group" : "Group info"}</h2><button type="button" onClick={onClose} disabled={saving} aria-label="Close group info">×</button></header>
+        <header className="group-profile-header"><h2 id="group-profile-title">{editing ? "Edit group" : "Group info"}</h2><button className="icon-button" type="button" onClick={onClose} disabled={saving} aria-label="Close group info"><Icon name="close" /></button></header>
         {editing ? <form className="group-profile-form" onSubmit={save}>
             <label>Group name<input autoFocus value={name} onChange={event => setName(event.target.value)} required maxLength={100} disabled={saving} /></label>
             <label>Group username<div className="group-username-input"><span aria-hidden="true">@</span><input aria-label="Group username" value={username} onChange={event => setUsername(event.target.value.replace(/^@/, "").toLowerCase())} minLength={3} maxLength={32} pattern="[a-z0-9_]{3,32}" placeholder="group_username" disabled={saving} /></div><small>3–32 letters, numbers or underscores. Optional.</small></label>
@@ -66,9 +68,9 @@ export function GroupProfileDialog({ chat, token, currentUserId, isSiteAdmin, on
             {error && <p className="group-profile-error" role="alert">{error}</p>}
             <div className="group-profile-actions"><button type="button" disabled={saving} onClick={() => setEditing(false)}>Cancel</button><button className="group-profile-save" type="submit" disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save changes"}</button></div>
         </form> : <>
-            <section className="group-profile-hero"><div className="group-profile-avatar" aria-hidden="true">👥</div><h3>{chat.name}</h3><span>{chat.members.length} participants</span></section>
+            <section className="group-profile-hero"><div className="avatar group-profile-avatar group-avatar" style={avatarStyle(chat.id)} aria-hidden="true"><Icon name="group" /></div><h3>{chat.name}</h3><span>{chat.members.length} participants</span></section>
             <section className="group-profile-details" aria-label="Group details"><div><span>Username</span><strong className={chat.username ? "group-profile-username" : "group-profile-muted"}>{chat.username ? `@${chat.username}` : "Not set"}</strong></div><div><span>Description</span><p className={chat.description ? "" : "group-profile-muted"}>{chat.description || "No description yet."}</p></div>
-                {isAdmin && <button type="button" className="group-profile-edit" onClick={startEditing}>Edit group info</button>}
+                {isAdmin && <button type="button" className="group-profile-edit" onClick={startEditing}><Icon name="edit" />Edit group info</button>}
             </section>
             <section className="group-profile-members" aria-labelledby="group-members-title"><h3 id="group-members-title">Participants <span>{chat.members.length}</span></h3><ul>{members.map(member => {
                 const avatar = getMediaUrl(member.avatar_url);
@@ -76,7 +78,7 @@ export function GroupProfileDialog({ chat, token, currentUserId, isSiteAdmin, on
                 return <li key={member.id}><button type="button" className="group-member-trigger" aria-haspopup="dialog" onClick={() => setSelectedMemberId(member.id)} onContextMenu={event => {
                     event.preventDefault();
                     if (isSiteAdmin && member.id !== currentUserId && !member.is_admin) setModeratedMemberId(member.id);
-                }}><div className="group-member-avatar">{avatar ? <img src={avatar} alt="" /> : displayName.slice(0, 1).toUpperCase()}</div><div className="group-member-name"><strong>{displayName}{member.id === currentUserId ? " (you)" : ""}</strong><small>@{member.username}</small></div>{member.group_role === "admin" && <span className="group-admin-badge">Admin</span>}</button></li>;
+                }}><div className="avatar group-member-avatar" style={avatarStyle(member.id)}>{avatar ? <img src={avatar} alt="" /> : <span className="avatar-initials">{avatarInitials(displayName)}</span>}</div><div className="group-member-name"><strong>{displayName}{member.id === currentUserId ? " (you)" : ""}</strong><small>@{member.username}</small></div>{member.group_role === "admin" && <span className="group-admin-badge">Admin</span>}</button></li>;
             })}</ul></section>
         </>}
         {moderatedMember && isSiteAdmin && <MemberModerationDialog key={moderatedMember.id} member={moderatedMember} token={token} onClose={() => setModeratedMemberId(null)} />}
@@ -112,7 +114,7 @@ function MemberModerationDialog({ member, token, onClose }: {
     return <dialog ref={dialogRef} className="group-profile-dialog member-moderation-dialog" aria-labelledby="member-moderation-title"
         onCancel={event => { event.stopPropagation(); if (busy) event.preventDefault(); else onClose(); }}
         onClick={event => { if (!busy && event.target === event.currentTarget) onClose(); }}>
-        <header className="group-profile-header"><h2 id="member-moderation-title">@{member.username}</h2><button type="button" onClick={onClose} disabled={busy} aria-label="Close member actions" autoFocus>×</button></header>
+        <header className="group-profile-header"><h2 id="member-moderation-title">@{member.username}</h2><button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Close member actions" autoFocus><Icon name="close" /></button></header>
         <div className="member-moderation-content">
             {blocked ? <p role="status">Account blocked.</p> : <>
                 <p>Block this account across the entire app. The user will be signed out and will not be able to sign in.</p>

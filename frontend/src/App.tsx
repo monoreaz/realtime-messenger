@@ -41,7 +41,9 @@ import {
 } from "./api";
 
 import "./App.css";
-import { Icon } from "./Icon";
+import "./Dialogs.css";
+import { BrandMark, Icon } from "./Icon";
+import { avatarInitials, avatarStyle } from "./avatar";
 import { AdminPanel } from "./AdminPanel";
 import { PeerProfileDialog } from "./PeerProfileDialog";
 import { GroupProfileDialog } from "./GroupProfileDialog";
@@ -91,21 +93,39 @@ function getUserDisplayName(user: User): string {
 function UserAvatar({
     user,
     className,
+    online = false,
 }: {
     user: User;
     className: string;
+    online?: boolean;
 }) {
     const avatarUrl = getMediaUrl(user.avatar_url);
 
     return (
-        <div className={className}>
+        <div className={`avatar ${className}`} style={avatarStyle(user.id)}>
             {avatarUrl ? (
                 <img src={avatarUrl} alt="" />
             ) : (
-                user.username.charAt(0).toUpperCase()
+                <span className="avatar-initials">{avatarInitials(getUserDisplayName(user))}</span>
             )}
+            {online && <span className="presence-dot" aria-hidden="true" />}
         </div>
     );
+}
+
+
+function messagePreviewText(message: Pick<Message, "content" | "image_url" | "video_url">): string {
+    return message.content || (message.image_url ? "Photo" : message.video_url ? "Video" : "Message");
+}
+
+
+/** Messages from one sender within a few minutes are visually grouped into a single run. */
+function isSameRun(first: Message | null | undefined, second: Message | null | undefined): boolean {
+    if (!first || !second || first.sender_id !== second.sender_id) return false;
+    if (first.deleted_at !== null || second.deleted_at !== null) return false;
+    if (first.is_call || second.is_call) return false;
+    const gap = Math.abs(new Date(second.created_at).getTime() - new Date(first.created_at).getTime());
+    return gap < 5 * 60 * 1000 && new Date(first.created_at).toDateString() === new Date(second.created_at).toDateString();
 }
 
 
@@ -2592,6 +2612,22 @@ function App() {
     }
 
 
+    function formatChatListTime(date: string) {
+        const value = new Date(date);
+        const now = new Date();
+        if (isSameDay(value, now)) return formatTime(date);
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        if (isSameDay(value, yesterday)) return "Yesterday";
+        if (now.getTime() - value.getTime() < 6 * 24 * 60 * 60 * 1000) {
+            return value.toLocaleDateString([], { weekday: "short" });
+        }
+        return value.toLocaleDateString([], value.getFullYear() === now.getFullYear()
+            ? { day: "numeric", month: "short" }
+            : { day: "numeric", month: "short", year: "2-digit" });
+    }
+
+
     function isSameDay(
         firstDate: string | Date,
         secondDate: string | Date,
@@ -2632,8 +2668,9 @@ function App() {
 
     if (!sessionChecked) {
         return (
-            <main className="loading-page">
-                Loading Messenger...
+            <main className="loading-page" aria-busy="true">
+                <BrandMark className="is-pulsing" />
+                <span>Loading Messenger…</span>
             </main>
         );
     }
@@ -2643,7 +2680,7 @@ function App() {
         return (
             <main className="auth-page">
                 <section className="auth-card">
-                    <div className="logo">M</div>
+                    <BrandMark className="auth-brand" />
 
                     <h1>Messenger</h1>
 
@@ -2745,9 +2782,7 @@ function App() {
                                                 : "Show password"
                                         }
                                     >
-                                        {showPassword
-                                            ? "🙈"
-                                            : "👁"}
+                                        <Icon name={showPassword ? "eyeOff" : "eye"} />
                                     </button>
                         </div>
                             </>
@@ -2831,9 +2866,7 @@ function App() {
                                         : "Show password"
                                 }
                             >
-                                {showConfirmPassword
-                                    ? "🙈"
-                                    : "👁"}
+                                <Icon name={showConfirmPassword ? "eyeOff" : "eye"} />
                             </button>
                         </div>
                     </>
@@ -2884,6 +2917,7 @@ function App() {
                         </button>
                     </form>
 
+                    <div className="auth-links">
                     {mode === "login" && (
                         <>
                             <button
@@ -2961,6 +2995,7 @@ function App() {
                                 : "Already have an account?"}
                         </button>
                     )}
+                    </div>
                 </section>
             </main>
         );
@@ -2969,8 +3004,9 @@ function App() {
 
     if (appLoading || !user) {
         return (
-            <main className="loading-page">
-                Loading Messenger...
+            <main className="loading-page" aria-busy="true">
+                <BrandMark className="is-pulsing" />
+                <span>Loading Messenger…</span>
             </main>
         );
     }
@@ -2987,135 +3023,162 @@ function App() {
     return (
         <main className={`messenger ${activeChat || currentPeer ? "chat-open" : ""} swipe-${swipePhase}`}>
             <aside className="sidebar">
-                <header className="sidebar-header">
-                    <div className="current-user">
-                        <UserAvatar
-                            user={user}
-                            className="small-avatar"
-                        />
+                <nav className="app-rail" aria-label="Main">
+                    <BrandMark className="rail-brand" />
 
-                        <div>
-                            <strong>
-                                {getUserDisplayName(user)}
-                            </strong>
+                    <div className="rail-group">
+                        <button className="rail-button" type="button" onClick={() => setGroupDialogOpen(true)} aria-label="Create group" title="New group">
+                            <Icon name="plus" />
+                        </button>
 
-                            <div className={`connection-status ${wsStatus}`}>
-                                {wsStatus === "connected"
-                                    ? "Online"
-                                    : wsStatus}
-                            </div>
-                        </div>
+                        {user.is_admin && (
+                            <button className="rail-button" type="button" onClick={() => setAdminPanelOpen(true)} aria-label="Open admin panel" title="Admin panel">
+                                <Icon name="shield" />
+                            </button>
+                        )}
                     </div>
 
-                    <div className="sidebar-actions">
-                        {user.is_admin && <button className="settings-button" type="button" onClick={() => setAdminPanelOpen(true)} aria-label="Open admin panel" title="Admin panel"><Icon name="shield" /></button>}
-                        <button className="settings-button" type="button" onClick={() => setGroupDialogOpen(true)} aria-label="Create group" title="Create group"><Icon name="plus" /></button>
-                        <button className="settings-button" type="button" onClick={openProfileSettings} aria-label="Profile settings">
+                    <div className="rail-group rail-footer">
+                        <button className="rail-button" type="button" onClick={openProfileSettings} aria-label="Profile settings" title="Settings">
                             <Icon name="settings" />
                         </button>
 
-                        <button className="logout-button" type="button" onClick={logout}>
-                            Log out
+                        <button className="rail-button" type="button" onClick={logout} aria-label="Log out" title="Log out">
+                            <Icon name="logout" />
+                        </button>
+
+                        <button className="rail-profile" type="button" onClick={openProfileSettings} aria-label={`${getUserDisplayName(user)} — open profile`} title={`${getUserDisplayName(user)} · @${user.username}`}>
+                            <UserAvatar user={user} className="small-avatar" />
+                            <span className={`rail-status ${wsStatus}`} aria-hidden="true" />
                         </button>
                     </div>
-                </header>
+                </nav>
 
-                <div className="search-area">
-                    <form className="search-form" onSubmit={handleSearch}>
-                        <input type="text" placeholder="Search users..." value={searchQuery} onChange={(event) => {
-                            setSearchQuery(event.target.value);
+                <div className="sidebar-main">
+                    <header className="sidebar-header">
+                        <div className="sidebar-title">
+                            <h1>Chats</h1>
+                            <span className={`connection-status ${wsStatus}`} role="status">
+                                {wsStatus === "connected"
+                                    ? "Online"
+                                    : wsStatus === "connecting"
+                                      ? "Connecting…"
+                                      : "Offline"}
+                            </span>
+                        </div>
+                    </header>
 
-                            if (!event.target.value) {
-                                setSearchResults([]);
-                            }
-                        }} />
+                    <div className="search-area">
+                        <form className="search-form" role="search" onSubmit={handleSearch}>
+                            <Icon name="search" className="search-icon" />
+                            <input type="search" aria-label="Search users by username" placeholder="Search people…" value={searchQuery} onChange={(event) => {
+                                setSearchQuery(event.target.value);
 
-                        <button type="submit" disabled={searchLoading || !searchQuery.trim()}>
-                            Search
-                        </button>
-                    </form>
+                                if (!event.target.value) {
+                                    setSearchResults([]);
+                                }
+                            }} onKeyDown={(event) => {
+                                if (event.key === "Escape" && searchQuery) {
+                                    event.preventDefault();
+                                    setSearchQuery("");
+                                    setSearchResults([]);
+                                }
+                            }} />
 
-                    {searchResults.length > 0 && (
-                        <div className="search-results">
-                            {searchResults.map((searchUser) => (
-                                <button className="search-result" type="button" key={searchUser.id} onClick={() => void handleUserSelect(searchUser)}>
-                                    <UserAvatar
-                                        user={searchUser}
-                                        className="chat-avatar"
-                                    />
+                            {searchQuery.trim() && (
+                                <button className="search-submit" type="submit" disabled={searchLoading} aria-label="Search">
+                                    {searchLoading ? <span className="spinner" aria-hidden="true" /> : <Icon name="chevronRight" />}
+                                </button>
+                            )}
+                        </form>
 
-                                    <div className="search-result-user">
-                                        <strong>
-                                            {getUserDisplayName(
-                                                searchUser,
+                        {searchResults.length > 0 && (
+                            <div className="search-results" role="group" aria-label="People">
+                                <div className="list-label">People</div>
+                                {searchResults.map((searchUser) => (
+                                    <button className="search-result" type="button" key={searchUser.id} onClick={() => void handleUserSelect(searchUser)}>
+                                        <UserAvatar
+                                            user={searchUser}
+                                            className="chat-avatar"
+                                            online={onlineUserIds.has(searchUser.id)}
+                                        />
+
+                                        <div className="search-result-user">
+                                            <strong>
+                                                {getUserDisplayName(
+                                                    searchUser,
+                                                )}
+                                            </strong>
+
+                                            <span>
+                                                @{searchUser.username}
+                                            </span>
+                                        </div>
+
+                                        <Icon name="chevronRight" className="search-result-arrow" />
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="chat-list">
+                        {chats.length === 0 ? (
+                            <div className="empty-sidebar">
+                                <span className="empty-icon"><Icon name="chat" /></span>
+                                <strong>No conversations yet</strong>
+                                <span>Search for someone by username to start a conversation.</span>
+                            </div>
+                        ) : (
+                            <>
+                            {searchResults.length > 0 && <div className="list-label">Conversations</div>}
+                            {chats.map((chat) => {
+                                const isActive = activeChat?.id === chat.id;
+                                const isUnread = chat.unread_count > 0;
+                                return (
+                                <button className={`chat-item ${isActive ? "active" : ""} ${isUnread ? "unread" : ""}`} type="button" key={chat.id} onClick={() => void openChat(chat)} aria-current={isActive ? "true" : undefined}>
+                                    {chat.peer ? <UserAvatar user={chat.peer} className="chat-avatar" online={onlineUserIds.has(chat.peer.id)} /> : <div className="avatar chat-avatar group-avatar" style={avatarStyle(chat.id)} aria-hidden="true"><Icon name="group" /></div>}
+
+                                    <div className="chat-info">
+                                        <div className="chat-title-row">
+                                            <strong>
+                                                {chat.type === "group" ? chat.name : chat.peer ? getUserDisplayName(chat.peer) : "Chat"}
+                                            </strong>
+
+                                            {chat.last_message && (
+                                                <span className="chat-time">
+                                                    {formatChatListTime(
+                                                        chat.last_message.created_at,
+                                                    )}
+                                                </span>
                                             )}
-                                        </strong>
+                                        </div>
 
-                                        <span>
-                                            @{searchUser.username}
-                                        </span>
+                                        <div className="chat-preview-row">
+                                            <span className="chat-preview">
+                                                {chat.last_message
+                                                    ? <>
+                                                        {chat.last_message.sender_id === user.id && <span className="chat-preview-sender">You: </span>}
+                                                        {messagePreviewText(chat.last_message)}
+                                                    </>
+                                                    : chat.type === "group" ? `${chat.members.length} participants` : "No messages yet"}
+                                            </span>
+
+                                            {isUnread && (
+                                                <span className="unread-badge" aria-label={`${chat.unread_count} unread`}>
+                                                    {chat.unread_count > 99
+                                                        ? "99+"
+                                                        : chat.unread_count}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                <div className="chat-list">
-                    {chats.length === 0 ? (
-                        <div className="empty-sidebar">
-                            Search for someone to start a conversation.
-                        </div>
-                    ) : (
-                        chats.map((chat) => (
-                            <button className={`chat-item ${activeChat?.id === chat.id ? "active" : ""}`} type="button" key={chat.id} onClick={() => void openChat(chat)}>
-                                {chat.peer ? <UserAvatar user={chat.peer} className="chat-avatar" /> : <div className="chat-avatar group-avatar" aria-hidden="true"><Icon name="group" /></div>}
-
-                                <div className="chat-info">
-                                    <div className="chat-title-row">
-                                        <strong>
-                                            {chat.type === "group" ? chat.name : chat.peer ? getUserDisplayName(chat.peer) : "Chat"}
-                                        </strong>
-
-                                        {chat.last_message && (
-                                            <span className="chat-time">
-                                                {formatTime(
-                                                    chat.last_message.created_at,
-                                                )}
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    <div className="chat-preview-row">
-                                        <span className="chat-preview">
-                                            {chat.last_message
-                                                ? `${
-                                                      chat.last_message.sender_id === user.id
-                                                          ? "You: "
-                                                          : ""
-                                                  }${
-                                                      chat.last_message.content ||
-                                                      (chat.last_message.image_url
-                                                          ? "Photo"
-                                                          : chat.last_message.video_url
-                                                            ? "Video"
-                                                            : "Message")
-                                                  }`
-                                                : "No messages yet"}
-                                        </span>
-
-                                        {chat.unread_count > 0 && (
-                                            <span className="unread-badge">
-                                                {chat.unread_count > 99
-                                                    ? "99+"
-                                                    : chat.unread_count}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            </button>
-                        ))
-                    )}
+                                );
+                            })}
+                            </>
+                        )}
+                    </div>
                 </div>
             </aside>
 
@@ -3125,7 +3188,7 @@ function App() {
                 setChats(items => sortChats([chat, ...items.filter(item => item.id !== chat.id)]));
                 void openChat(chat);
             }} />}
-            {audioCall.error && !audioCall.call && <div className="call-notice" role="status">{audioCall.error} <button onClick={audioCall.play}>Enable audio</button><button onClick={audioCall.dismissError} aria-label="Close"><Icon name="close" /></button></div>}
+            {audioCall.error && !audioCall.call && <div className="call-notice" role="status"><span>{audioCall.error}</span> <button onClick={audioCall.play}>Enable audio</button><button onClick={audioCall.dismissError} aria-label="Close"><Icon name="close" /></button></div>}
             {audioCall.call && <AudioCallDialog name={audioCall.call.name} phase={audioCall.call.phase} elapsedSeconds={audioCall.elapsedSeconds} muted={audioCall.muted} onAccept={() => void audioCall.accept()} onEnd={() => audioCall.end()} onToggleMute={audioCall.toggleMute} error={audioCall.error} onPlayAudio={audioCall.play} />}
             <section ref={swipePanelRef} className="chat-panel" onTouchStart={startBackSwipe} onTouchMove={moveBackSwipe} onTouchEnd={finishBackSwipe} onTouchCancel={() => { if (backSwipe.current?.dragging) settleBackSwipe(false); else backSwipe.current = null; }}>
                 {activeChat || currentPeer ? (
@@ -3136,17 +3199,18 @@ function App() {
                             </button>
 
                             {activeChat?.type === "group" ? <>
-                                <div className="chat-avatar group-avatar" aria-hidden="true"><Icon name="group" /></div>
+                                <div className="avatar chat-avatar group-avatar" style={avatarStyle(activeChat.id)} aria-hidden="true"><Icon name="group" /></div>
                                 <div className="chat-peer-info">
                                     <button className="peer-profile-trigger" type="button" onClick={() => setGroupMembersOpen(true)} aria-haspopup="dialog" aria-label="Open group profile">
                                         {activeChat.name}
                                     </button>
-                                    <span className="peer-status">{typingUserIds.size ? "Someone is typing..." : `${activeChat.members.length} participants`}</span>
+                                    <span className={typingUserIds.size ? "peer-status typing" : "peer-status"}>{typingUserIds.size ? <><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span>Someone is typing…</> : `${activeChat.members.length} participants`}</span>
                                 </div>
                             </> : currentPeer && <>
                             <UserAvatar
                                 user={currentPeer}
                                 className="chat-avatar"
+                                online={onlineUserIds.has(currentPeer.id)}
                             />
 
                             <div className="chat-peer-info">
@@ -3176,7 +3240,7 @@ function App() {
                                     {typingUserIds.has(
                                         currentPeer.id,
                                     )
-                                        ? "typing..."
+                                        ? <><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span>typing…</>
                                         : onlineUserIds.has(
                                               currentPeer.id,
                                           )
@@ -3191,7 +3255,7 @@ function App() {
                                     .then(() => audioCall.start(peer.id, getUserDisplayName(peer)))
                                     .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Could not start the call"));
                             }}>
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L9 10.9a16 16 0 0 0 4.1 4.1l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 2.7 3Z"/></svg>
+                                <Icon name="phone" />
                             </button>
                             </>}
                         </header>
@@ -3206,11 +3270,11 @@ function App() {
                             <div className="pinned-message-toolbar">
                                 <button className="pinned-message-strip" type="button" onClick={() => jumpToMessage(displayedPin.id)}>
                                     <span className="pinned-message-icon"><Icon name="pin" /></span>
-                                    <span><strong>{chatPins.length} pinned message{chatPins.length === 1 ? "" : "s"}</strong><small>{displayedPin.content || (displayedPin.image_url ? "Photo" : "Video")}</small></span>
-                                    <span aria-hidden="true">›</span>
+                                    <span className="pinned-message-text"><strong>{chatPins.length === 1 ? "Pinned message" : `${chatPins.length} pinned messages`}</strong><small>{messagePreviewText(displayedPin)}</small></span>
+                                    <Icon name="chevronRight" className="pinned-message-arrow" />
                                 </button>
                                 <button className="pinned-list-toggle" type="button" aria-label="Show all pinned messages" title="All pinned messages" aria-haspopup="dialog" onClick={() => setPinnedListChatId(activeChat?.id ?? null)}>
-                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1" /></svg>
+                                    <Icon name="list" />
                                     <span>{chatPins.length}</span>
                                 </button>
                             </div>
@@ -3234,12 +3298,15 @@ function App() {
                         >
                             <div ref={messagesContentRef}>
                             {messagesLoading ? (
-                                <div className="chat-placeholder">
-                                    Loading messages...
+                                <div className="chat-placeholder" aria-busy="true">
+                                    <span className="spinner" aria-hidden="true" />
+                                    Loading messages…
                                 </div>
                             ) : messages.length === 0 ? (
                                 <div className="chat-placeholder">
-                                    No messages yet. Say hello.
+                                    <span className="empty-icon"><Icon name="chat" /></span>
+                                    <strong>No messages yet</strong>
+                                    <span>Say hello to start the conversation.</span>
                                 </div>
                             ) : (
                                 messages.map((message, index) => {
@@ -3276,12 +3343,50 @@ function App() {
                                             ? messages[index - 1]
                                             : null;
 
+                                    const nextMessage =
+                                        index < messages.length - 1
+                                            ? messages[index + 1]
+                                            : null;
+
                                     const showDate =
                                         !previousMessage ||
                                         !isSameDay(
                                             previousMessage.created_at,
                                             message.created_at,
                                         );
+
+                                    const continuesRun = !showDate && isSameRun(previousMessage, message);
+                                    const runContinues = isSameRun(message, nextMessage);
+                                    const hasMedia = Boolean(imageUrl || videoUrl);
+
+                                    const meta = (
+                                        <>
+                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message"><Icon name="pin" /></span>}
+                                            {message.edited_at && (
+                                                <span className="message-edited">
+                                                    edited
+                                                </span>
+                                            )}
+
+                                            <time className="message-time" dateTime={message.created_at}>
+                                                {formatTime(
+                                                    message.created_at,
+                                                )}
+                                            </time>
+
+                                            {isOwnMessage && (
+                                                <span
+                                                    className={`message-receipt ${
+                                                        isRead ? "read" : ""
+                                                    }`}
+                                                    title={isRead ? "Read" : "Sent"}
+                                                    aria-label={isRead ? "Read" : "Sent"}
+                                                >
+                                                    <Icon name={isRead ? "checkDouble" : "check"} />
+                                                </span>
+                                            )}
+                                        </>
+                                    );
 
                                     return (
                                         <Fragment key={message.id}>
@@ -3298,7 +3403,7 @@ function App() {
                                             <div
                                                 id={`message-${message.id}`}
                                                 tabIndex={-1}
-                                                className={`message-row ${isOwnMessage ? "own" : ""} ${replyTarget?.id === message.id ? "reply-target" : ""}`}
+                                                className={`message-row ${isOwnMessage ? "own" : ""} ${continuesRun ? "run-continues-above" : ""} ${runContinues ? "run-continues-below" : ""} ${replyTarget?.id === message.id ? "reply-target" : ""}`}
                                                 onContextMenu={(event) =>
                                                     openMessageContextMenu(
                                                         event,
@@ -3308,12 +3413,12 @@ function App() {
                                             >
                                                 <div
                                                     className={`message-bubble ${message.is_call ? "call-message-bubble" : ""} ${
-                                                        imageUrl || videoUrl
+                                                        hasMedia
                                                             ? "media-message"
                                                             : ""
                                                     }`}
                                                 >
-                                                    {activeChat?.type === "group" && !isOwnMessage && <strong className="group-message-author">{senderName(message.sender_id)}</strong>}
+                                                    {activeChat?.type === "group" && !isOwnMessage && !continuesRun && <strong className="group-message-author" style={avatarStyle(message.sender_id)}>{senderName(message.sender_id)}</strong>}
                                                     {message.reply_to_message && (
                                                         <button
                                                             className="message-reply"
@@ -3329,17 +3434,12 @@ function App() {
                                                             </strong>
 
                                                             <span>
-                                                                {message.reply_to_message.content ||
-                                                                    (message.reply_to_message.image_url
-                                                                        ? "Photo"
-                                                                        : message.reply_to_message.video_url
-                                                                          ? "Video"
-                                                                          : "Message")}
+                                                                {messagePreviewText(message.reply_to_message)}
                                                             </span>
                                                         </button>
                                                     )}
 
-                                                    {(imageUrl || videoUrl) && (
+                                                    {hasMedia && (
                                                         <div
                                                             className={`message-media ${
                                                                 videoUrl ? "video" : "image"
@@ -3387,62 +3487,20 @@ function App() {
                                                             )}
 
                                                             <div className={`message-media-meta ${message.content ? "with-caption" : ""}`}>
-                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message"><Icon name="pin" /></span>}
-                                                                {message.edited_at && (
-                                                                    <span>edited</span>
-                                                                )}
-
-                                                                <span>
-                                                                    {formatTime(
-                                                                        message.created_at,
-                                                                    )}
-                                                                </span>
-
-                                                                {isOwnMessage && (
-                                                                    <span
-                                                                        className={`message-receipt ${
-                                                                            isRead ? "read" : ""
-                                                                        }`}
-                                                                        title={isRead ? "Read" : "Sent"}
-                                                                    >
-                                                                        {isRead ? "✓✓" : "✓"}
-                                                                    </span>
-                                                                )}
+                                                                {meta}
                                                             </div>
                                                         </div>
                                                     )}
 
-                                                    {message.content && !imageUrl && !videoUrl && (
+                                                    {message.content && !hasMedia && (
                                                         message.is_call
                                                             ? <CallMessage content={message.content} outgoing={isOwnMessage} />
                                                             : <div className="message-content">{message.content}</div>
                                                     )}
 
-                                                    {!imageUrl && !videoUrl && (
+                                                    {!hasMedia && (
                                                         <div className="message-meta">
-                                                            {message.pinned_at && <span className="message-pinned-badge" title="Pinned" aria-label="Pinned message"><Icon name="pin" /></span>}
-                                                            {message.edited_at && (
-                                                                <span className="message-edited">
-                                                                    edited
-                                                                </span>
-                                                            )}
-
-                                                            <span className="message-time">
-                                                                {formatTime(
-                                                                    message.created_at,
-                                                                )}
-                                                            </span>
-
-                                                            {isOwnMessage && (
-                                                                <span
-                                                                    className={`message-receipt ${
-                                                                        isRead ? "read" : ""
-                                                                    }`}
-                                                                    title={isRead ? "Read" : "Sent"}
-                                                                >
-                                                                    {isRead ? "✓✓" : "✓"}
-                                                                </span>
-                                                            )}
+                                                            {meta}
                                                         </div>
                                                     )}
                                                 </div>
@@ -3471,16 +3529,15 @@ function App() {
                                     });
                                 }}
                             >
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M12 5v14m-6-6 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
+                                <Icon name="arrowDown" />
                             </button>
                         )}
                         </div>
 
                         <div className="message-composer">
                             {editingMessage && (
-                                <div className="editing-preview">
+                                <div className="editing-preview composer-preview">
+                                    <span className="composer-preview-icon"><Icon name="edit" /></span>
                                     <div className="editing-preview-content">
                                         <strong>Editing message</strong>
                                         <span>{editingMessage.content}</span>
@@ -3497,7 +3554,8 @@ function App() {
                             )}
 
                             {replyingTo && (
-                                <div className="replying-preview">
+                                <div className="replying-preview composer-preview">
+                                    <span className="composer-preview-icon"><Icon name="reply" /></span>
                                     <div className="replying-preview-content">
                                         <strong>
                                             Replying to{" "}
@@ -3507,12 +3565,7 @@ function App() {
                                         </strong>
 
                                         <span>
-                                            {replyingTo.content ||
-                                                (replyingTo.image_url
-                                                    ? "Photo"
-                                                    : replyingTo.video_url
-                                                      ? "Video"
-                                                      : "Message")}
+                                            {messagePreviewText(replyingTo)}
                                         </span>
                                     </div>
 
@@ -3527,7 +3580,7 @@ function App() {
                             )}
 
                             {selectedImage && selectedImagePreview && (
-                                <div className="selected-image-preview">
+                                <div className="selected-image-preview composer-preview">
                                     <img
                                         src={selectedImagePreview}
                                         alt="Selected"
@@ -3551,7 +3604,7 @@ function App() {
                             )}
 
                             {selectedVideo && selectedVideoPreview && (
-                                <div className="selected-image-preview selected-video-preview">
+                                <div className="selected-image-preview selected-video-preview composer-preview">
                                     <div className="selected-video-thumbnail">
                                         <video
                                             src={selectedVideoPreview}
@@ -3559,7 +3612,7 @@ function App() {
                                             muted
                                             playsInline
                                         />
-                                        <span aria-hidden="true">▶</span>
+                                        <span aria-hidden="true"><Icon name="play" /></span>
                                     </div>
 
                                     <div className="selected-image-info">
@@ -3588,8 +3641,18 @@ function App() {
                                     <label
                                         className="attachment-button"
                                         title="Attach photo or video"
+                                        aria-label="Attach photo or video"
+                                        role="button"
+                                        tabIndex={sending ? -1 : 0}
+                                        aria-disabled={sending}
+                                        onKeyDown={(event) => {
+                                            if (event.key === "Enter" || event.key === " ") {
+                                                event.preventDefault();
+                                                imageInputRef.current?.click();
+                                            }
+                                        }}
                                     >
-                                        📎
+                                        <Icon name="paperclip" />
                                         <input
                                             ref={imageInputRef}
                                             type="file"
@@ -3617,10 +3680,14 @@ function App() {
                                     onChange={handleMessageInputChange}
                                     maxLength={4000}
                                     autoComplete="off"
+                                    aria-label="Message"
                                 />
 
                                 <button
+                                    className="send-button"
                                     type="submit"
+                                    aria-label={editingMessage ? "Save edit" : "Send message"}
+                                    title={editingMessage ? "Save" : "Send"}
                                     disabled={
                                         editingMessage
                                             ? messageActionLoading === editingMessage.id ||
@@ -3631,7 +3698,7 @@ function App() {
                                                   !selectedVideo)
                                     }
                                 >
-                                    ➤
+                                    <Icon name={editingMessage ? "check" : "send"} />
                                 </button>
                             </form>
                         </div>
@@ -3654,7 +3721,7 @@ function App() {
                                 </button>
 
                                 <button type="button" onClick={() => void togglePinnedMessage(contextMenu.message)}>
-                                    <span className="message-context-icon">{contextMenu.message.pinned_at ? "−" : "📌"}</span>
+                                    <span className="message-context-icon"><Icon name={contextMenu.message.pinned_at ? "unpin" : "pin"} /></span>
                                     <span>{contextMenu.message.pinned_at ? "Unpin" : "Pin message"}</span>
                                 </button>
 
@@ -3681,7 +3748,7 @@ function App() {
                                             )
                                         }
                                     >
-                                        <span className="message-context-icon"><Icon name="close" /></span>
+                                        <span className="message-context-icon"><Icon name="trash" /></span>
                                         <span>Delete</span>
                                     </button>
                                 )}
@@ -3702,11 +3769,15 @@ function App() {
                             >
                                 <div
                                     className="message-delete-modal"
+                                    role="alertdialog"
+                                    aria-modal="true"
+                                    aria-labelledby="delete-message-title"
                                     onMouseDown={(event) =>
                                         event.stopPropagation()
                                     }
                                 >
-                                    <h3>Delete message?</h3>
+                                    <span className="modal-icon danger" aria-hidden="true"><Icon name="trash" /></span>
+                                    <h3 id="delete-message-title">Delete message?</h3>
                                     <p>
                                         This message will be deleted for
                                         everyone.
@@ -3747,20 +3818,20 @@ function App() {
                     </>
                 ) : (
                     <div className="no-chat-selected">
-                        <div className="logo">M</div>
-                        <h2>Select a chat</h2>
+                        <BrandMark className="empty-brand" />
+                        <h2>Your conversations</h2>
 
                         <p>
-                            Choose a conversation or search for a user.
+                            Choose a chat from the list, or search for someone by username to start a new one.
                         </p>
                     </div>
                 )}
 
                 {error && !profileOpen && (
-                    <div className="global-error">
-                        {error}
+                    <div className="global-error" role="alert">
+                        <span>{error}</span>
 
-                        <button type="button" onClick={() => setError("")}>
+                        <button type="button" onClick={() => setError("")} aria-label="Dismiss error">
                             <Icon name="close" />
                         </button>
                     </div>
@@ -3769,14 +3840,14 @@ function App() {
 
             {profileOpen && (
                 <div className="profile-overlay">
-                    <section className="settings-window">
+                    <section className="settings-window" role="dialog" aria-modal="true" aria-labelledby="settings-title">
                         <header className="settings-header">
                             <div>
-                                <h2>Settings</h2>
+                                <h2 id="settings-title">Settings</h2>
                                 <span>@{user.username}</span>
                             </div>
 
-                            <button className="settings-close-button" type="button" onClick={closeProfileSettings} aria-label="Close settings">
+                            <button className="settings-close-button icon-button" type="button" onClick={closeProfileSettings} aria-label="Close settings">
                                 <Icon name="close" />
                             </button>
                         </header>
@@ -3909,7 +3980,8 @@ function App() {
                                             </div>
 
                                             <button className="refresh-sessions-button" type="button" onClick={() => void loadSessions()} disabled={sessionsLoading}>
-                                                {sessionsLoading ? "Loading..." : "Refresh"}
+                                                <Icon name="refresh" />
+                                {sessionsLoading ? "Loading…" : "Refresh"}
                                             </button>
                                         </div>
 
@@ -3925,7 +3997,7 @@ function App() {
                                                 {sessions.map((session) => (
                                                     <div className={`session-item ${session.current ? "current" : ""}`} key={session.id}>
                                                         <div className="session-device-icon">
-                                                            {session.current ? "●" : "○"}
+                                                            <Icon name="device" />
                                                         </div>
 
                                                         <div className="session-info">
@@ -4078,7 +4150,7 @@ function App() {
                                     }}
                                     aria-label="Previous image"
                                 >
-                                    ‹
+                                    <Icon name="chevronLeft" />
                                 </button>
 
                                 <button
@@ -4090,7 +4162,7 @@ function App() {
                                     }}
                                     aria-label="Next image"
                                 >
-                                    ›
+                                    <Icon name="chevronRight" />
                                 </button>
                             </>
                         )}
