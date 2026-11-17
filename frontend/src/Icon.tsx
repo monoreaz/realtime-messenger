@@ -1,3 +1,5 @@
+import brandMarkUrl from "./assets/brand-mark.webp";
+
 // Stroke icons on a 24×24 grid. Keep them visually consistent: 1.7px round strokes, no fills.
 const paths = {
     settings: "M9.5 3h5l.6 2.4 2.1 1.2 2.4-.7 2.5 4.2-1.8 1.7v2.4l1.8 1.7-2.5 4.2-2.4-.7-2.1 1.2-.6 2.4h-5l-.6-2.4-2.1-1.2-2.4.7L1.9 16l1.8-1.7v-2.4L1.9 10.2l2.5-4.3 2.4.7 2.1-1.2L9.5 3Z M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0",
@@ -42,13 +44,11 @@ export function Icon({ name, className }: { name: IconName; className?: string }
     return <svg className={className ? `ui-icon ${className}` : "ui-icon"} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={paths[name]} /></svg>;
 }
 
-/** The product mark: a lowercase "m" drawn as two soft arches inside a glass tile. */
+/** The product mark: the glowing glass "S" tile (256px WebP cropped from the master sileoicon.png). */
 export function BrandMark({ className = "" }: { className?: string }) {
     return (
         <span className={`brand-mark ${className}`} aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 18v-8a3.5 3.5 0 0 1 7 0v8 M12 10a3.5 3.5 0 0 1 7 0v8" />
-            </svg>
+            <img src={brandMarkUrl} alt="" draggable={false} />
         </span>
     );
 }
