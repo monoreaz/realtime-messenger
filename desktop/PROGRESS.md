@@ -13,10 +13,11 @@ backend (`/api/*`, `/ws`) exactly like the web client does.
   signed in-app updates (Telegram-style).
 
 ## Current stage
-**M1–M5 implemented; M6/M7 prepared, waiting for the first GitHub push.** The app runs
-against a real backend (live end-to-end test). It was visually checked headless on Linux.
-The Windows target type-checks. The CI workflow, installer script and signed-update pipeline
-are written but not yet run on GitHub.
+**M1–M6 done, M7 (installer and updates) built in CI but not yet exercised end to end, M8 pending.**
+`feature/desktop` is on GitHub. The Windows CI run (tests, clippy, release build, Inno Setup
+installer, artifact) **passed** on windows-latest. Native audio calls work, and interop with the web
+app in Chromium is verified in both directions. Still open: manually testing the installed app on a
+real Windows PC, the first signed release (needs the GitHub secret), and an update test 0.1.0 → 0.1.1.
 
 ## Architecture (desktop/src)
 | Module | Role |
@@ -32,6 +33,8 @@ are written but not yet run on GitHub.
 | `ui/` | `theme.rs` (design tokens), `icons.rs` (web icon paths as SVG), `widgets.rs`, `auth.rs`, `sidebar.rs`, `chat.rs`, `settings.rs` |
 | `update.rs` | manifest check, background download with progress, SHA-256 + Ed25519 verification, silent installer launch |
 | `platform.rs` | notifications (WinRT toast via notify-rust), AppUserModelID, open-with-default-app |
+| `call/` | native audio calls: `engine.rs` (str0m WebRTC, sans-IO loop), `codec.rs` (pure-Rust libopus), `audio.rs` (cpal WASAPI, resampling, jitter buffer) |
+| `ui/call.rs` | floating call card (incoming accept/decline, calling, timer, mute, hang up) |
 
 Key decisions:
 - **TLS: native-tls** (SChannel on Windows, so it uses the Windows certificate store). Keeps the build free of C toolchains (no ring or aws-lc).
@@ -43,8 +46,12 @@ Key decisions:
 - **Idle CPU**: no timers unless something time-based is pending (typing expiry, toasts).
 - **Jump to message**: custom widget `Operation` measures the target container inside the
   scrollable, then chains a `scroll_to` (offsets are bottom-anchored).
-- **Calls**: WebRTC audio is not implemented natively yet. Incoming calls show a dialog and a notification
-  (Dismiss / Decline). The phone button explains that calls are coming.
+- **Calls**: str0m (pure-Rust WebRTC; crypto = Windows CNG/SChannel on Windows, rust-crypto on
+  Linux dev builds) + unsafe-libopus (c2rust libopus, no C toolchain) + cpal (WASAPI). Same `call.*`
+  signalling and SDP/ICE JSON as the web client. Host candidates on every non-loopback IPv4 interface
+  (Tailscale included); browser TURN relay candidates are used as remote candidates. str0m has no TURN
+  client, so the desktop does not allocate relays itself. This works on the tailnet and LAN, and when the
+  other side relays.
 - **Videos**: there is no in-app decoder. Videos are downloaded to the cache and opened in the default player.
 
 ## Feature parity checklist
@@ -93,8 +100,11 @@ Legend: ✅ implemented (compiles; logic unit-tested where noted) · 🔶 partia
 - ✅ Admin panel: stats, search, status filter, pagination, block/unblock with confirmation
 
 ### Calls & push
-- ❌ Audio calls (WebRTC, Opus, TURN) — planned; needs webrtc-rs + cpal + opus
-- 🔶 Incoming call: notification + dialog (dismiss / decline)
+- ✅ Audio calls, outgoing and incoming: accept/decline, busy handling, mute, timer, hang up, toast with
+  end reason. Notification + taskbar flash + focus on incoming. Verified: engine loopback test, and
+  **the web app in Chromium ⇄ desktop engine, both directions, audio both ways** (`call_interop_with_browser`).
+  Not yet heard on real Windows audio devices.
+- 🔶 No own TURN allocation (see Key decisions)
 - ➖ Android FCM push (desktop uses native notifications instead)
 
 ### Windows integration
@@ -108,11 +118,12 @@ Legend: ✅ implemented (compiles; logic unit-tested where noted) · 🔶 partia
 - ✅ Proper shutdown (settings saved on close request)
 
 ### Distribution
-- 🔶 GitHub Actions `.github/workflows/desktop.yml` (windows-latest: test, clippy, release build,
-  installer, artifact; `desktop-v*` tag → signed `latest.json` + **draft** release). Not run yet.
+- ✅ GitHub Actions `.github/workflows/desktop.yml` (windows-latest: test, clippy, release build,
+  installer, artifact `messenger-desktop-<ver>-windows`; `desktop-v*` tag → signed `latest.json` +
+  **draft** release). First run 44370733605 passed.
 - 🔶 Inno Setup `installer/messenger.iss`: per-user (no UAC), Start Menu + optional desktop
   shortcut with AppUserModelID, uninstaller, fixed AppId for upgrades, closes the running app,
-  relaunches after silent update (`/UPDATE=1`). Not run yet.
+  relaunches after silent update (`/UPDATE=1`). Builds in CI; install/upgrade not yet tested by hand.
 - ✅ Icon: `assets/icon.ico` (16–256 px, `cargo run --example make_icon`), embedded by build.rs on Windows.
 - ✅ In-app updates (client): finds the newest published `desktop-v*` GitHub release via the API,
   downloads in the background with progress, and checks SHA-256 and the Ed25519 signature (covering version +
@@ -137,7 +148,10 @@ Legend: ✅ implemented (compiles; logic unit-tested where noted) · 🔶 partia
   groups + permissions, sessions, admin block → account.blocked, logout.
 - Headless UI run (Xvfb, tiny-skia; `scripts/shoot.sh`): chat list, conversation, context menu,
   settings, group info, image viewer, new group, narrow layout ✅ (screenshots reviewed).
-- Windows build on GitHub Actions: not run yet (needs push).
+- Windows CI (GitHub Actions windows-latest): ✅ tests, clippy, release build, installer (run 44370733605).
+- Call engine: loopback test ✅; browser interop ✅ (`scripts/it-stack.sh up && scripts/it-stack.sh web`,
+  then run `call_interop` with MESSENGER_IT_CALL=1 together with `scripts/call-interop.mjs` in the
+  desktop-browser image (Playwright + Chromium with fake microphone)).
 
 ## How to build/test (from agent-01)
 ```
@@ -155,7 +169,8 @@ The script rsyncs `desktop/` to messenger-01 and runs cargo in Docker (capped 3 
 - Chat list previews are truncated by an estimated character count.
 
 ## Next steps
-1. Push `feature/desktop` (approval needed) → fix whatever the first Windows CI run reports.
-2. Owner adds the `DESKTOP_UPDATE_SIGNING_KEY` secret; test an update 0.1.0 → 0.1.1 with draft releases.
-3. Native audio calls (webrtc-rs + cpal + Opus), compatible with the web's WebRTC signalling.
-4. Performance pass on Windows (startup time, idle CPU, memory with large chats).
+1. Owner: install the CI artifact on Windows and try it (login, chats, notifications, a call).
+2. Owner adds the `DESKTOP_UPDATE_SIGNING_KEY` secret → first `desktop-v0.1.0` draft release
+   (ask before tagging/pushing) → test an update 0.1.0 → 0.1.1.
+3. Performance pass on Windows (startup time, idle CPU, memory with large chats).
+4. Optional: TURN client for calls outside the tailnet; video inline playback; multi-line composer.
