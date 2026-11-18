@@ -24,11 +24,13 @@ use crate::ui::icons::Icon;
 use crate::ui::theme;
 use crate::ui::widgets::{self, hspace, label, modal, strong};
 
-/// Where the newest manifest lives. Override at build time with MESSENGER_UPDATE_URL.
-pub const MANIFEST_URL: &str = match option_env!("MESSENGER_UPDATE_URL") {
-    Some(url) => url,
-    None => "https://github.com/monoreaz/realtime-messenger/releases/latest/download/latest.json",
-};
+/// Release listing used to find the newest `desktop-v*` release (the repository also
+/// hosts Android releases, so GitHub's "latest release" is not necessarily ours).
+const RELEASES_API: &str = "https://api.github.com/repos/monoreaz/realtime-messenger/releases?per_page=30";
+/// Optional fixed manifest URL (build-time `MESSENGER_UPDATE_URL`), e.g. for a separate
+/// public distribution endpoint; bypasses the GitHub release lookup.
+const MANIFEST_OVERRIDE: Option<&str> = option_env!("MESSENGER_UPDATE_URL");
+const TAG_PREFIX: &str = "desktop-v";
 
 /// Base64 Ed25519 public key (`desktop/update-public-key.txt`). Empty → updates disabled.
 const PUBLIC_KEY: &str = include_str!("../update-public-key.txt");
@@ -157,13 +159,63 @@ pub fn startup_task(settings: &Settings) -> Task<Message> {
     Task::perform(tokio::time::sleep(Duration::from_secs(4)), |_| Message::Update(Msg::Check))
 }
 
+#[derive(Debug, Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
+    #[serde(default)]
+    assets: Vec<GithubAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+/// Newest published (non-draft, non-prerelease) desktop release that has a manifest.
+fn newest_manifest_url(releases: Vec<GithubRelease>) -> Option<String> {
+    releases
+        .into_iter()
+        .filter(|release| !release.draft && !release.prerelease)
+        .filter_map(|release| {
+            let version = Version::parse(release.tag_name.strip_prefix(TAG_PREFIX)?).ok()?;
+            let asset = release.assets.into_iter().find(|asset| asset.name == "latest.json")?;
+            Some((version, asset.browser_download_url))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0))
+        .map(|(_, url)| url)
+}
+
 async fn fetch_manifest() -> Result<Option<Release>, String> {
     let http = reqwest::Client::builder()
         .user_agent(crate::api::client::user_agent())
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|error| error.to_string())?;
-    let response = http.get(MANIFEST_URL).send().await.map_err(|error| format!("Could not check for updates: {error}"))?;
+    let manifest_url = match MANIFEST_OVERRIDE {
+        Some(url) => url.to_owned(),
+        None => {
+            let response = http
+                .get(RELEASES_API)
+                .header("Accept", "application/vnd.github+json")
+                .send()
+                .await
+                .map_err(|error| format!("Could not check for updates: {error}"))?;
+            if !response.status().is_success() {
+                return Err(format!("Could not check for updates (HTTP {}).", response.status().as_u16()));
+            }
+            let releases: Vec<GithubRelease> = response.json().await.map_err(|_| "Could not read the release list.".to_owned())?;
+            match newest_manifest_url(releases) {
+                Some(url) => url,
+                None => return Ok(None),
+            }
+        }
+    };
+    let response = http.get(&manifest_url).send().await.map_err(|error| format!("Could not check for updates: {error}"))?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
@@ -338,7 +390,7 @@ fn launch_installer(path: &Path) -> Result<(), String> {
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     // Inno Setup: per-user, no UI; the installer restarts the app when it finishes.
     std::process::Command::new(path)
-        .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/UPDATE"])
+        .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/UPDATE=1"])
         .creation_flags(DETACHED_PROCESS)
         .spawn()
         .map(drop)
@@ -589,6 +641,34 @@ mod tests {
 
         // A different key must fail.
         assert!(verify_release(&release, &SigningKey::from_bytes(&[9u8; 32]).verifying_key()).is_err());
+    }
+
+    /// Checks a manifest produced by `examples/update_tool` with the real signing key
+    /// against the public key compiled into the app:
+    /// MESSENGER_MANIFEST_CHECK=<latest.json>:<installer> cargo test manifest_matches
+    #[test]
+    fn manifest_matches_compiled_key() {
+        let Ok(spec) = std::env::var("MESSENGER_MANIFEST_CHECK") else { return };
+        let (manifest_path, file) = spec.split_once(':').unwrap();
+        let manifest: Manifest = serde_json::from_slice(&std::fs::read(manifest_path).unwrap()).unwrap();
+        let release = select_release(manifest, &Version::parse("0.0.1").unwrap()).unwrap().unwrap();
+        verify_release(&release, &public_key().expect("public key configured")).unwrap();
+        assert_eq!(sha256_file(Path::new(file)).unwrap(), release.asset.sha256);
+    }
+
+    #[test]
+    fn picks_newest_desktop_release() {
+        let releases: Vec<GithubRelease> = serde_json::from_value(serde_json::json!([
+            {"tag_name": "android-v0.3.0", "assets": [{"name": "latest.json", "browser_download_url": "https://x/android"}]},
+            {"tag_name": "desktop-v0.3.0", "draft": true, "assets": [{"name": "latest.json", "browser_download_url": "https://x/draft"}]},
+            {"tag_name": "desktop-v0.2.10", "assets": [{"name": "latest.json", "browser_download_url": "https://x/0.2.10"}]},
+            {"tag_name": "desktop-v0.2.9", "assets": [{"name": "latest.json", "browser_download_url": "https://x/0.2.9"}]},
+            {"tag_name": "desktop-v0.4.0-beta.1", "prerelease": true, "assets": [{"name": "latest.json", "browser_download_url": "https://x/beta"}]},
+            {"tag_name": "desktop-v0.5.0", "assets": [{"name": "notes.txt", "browser_download_url": "https://x/none"}]}
+        ]))
+        .unwrap();
+        assert_eq!(newest_manifest_url(releases).as_deref(), Some("https://x/0.2.10"));
+        assert_eq!(newest_manifest_url(Vec::new()), None);
     }
 
     #[test]

@@ -1,0 +1,124 @@
+name: Desktop (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    tags: ['desktop-v*']
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  pull_request:
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: desktop
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> target
+
+      - name: Read version
+        id: version
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          "version=$version" >> $env:GITHUB_OUTPUT
+          if ($env:GITHUB_REF -like 'refs/tags/desktop-v*') {
+            $tag = $env:GITHUB_REF_NAME.Substring('desktop-v'.Length)
+            if ($tag -ne $version) { throw "Tag version $tag does not match Cargo.toml version $version" }
+          }
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets
+
+      - name: Build release
+        run: cargo build --release --locked
+
+      - name: Build installer
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" installer\messenger.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Smoke test executable
+        run: |
+          $info = (Get-Item target\release\messenger.exe).VersionInfo
+          "File version: $($info.FileVersion)  Product: $($info.ProductName)"
+          if ((Get-Item target\release\messenger.exe).Length -lt 1MB) { throw "Executable is unexpectedly small" }
+
+      - name: Sign update manifest (release tags only)
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.DESKTOP_UPDATE_SIGNING_KEY }}
+        run: |
+          if (-not $env:UPDATE_SIGNING_KEY) { throw "Secret DESKTOP_UPDATE_SIGNING_KEY is not configured" }
+          $version = "${{ steps.version.outputs.version }}"
+          $installer = "installer\Output\Messenger-Setup-$version.exe"
+          $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Messenger-Setup-$version.exe"
+          $notes = "release-notes\$version.md"
+          $toolArgs = @('manifest', $installer, $version, $url)
+          if (Test-Path $notes) { $toolArgs += $notes }
+          cargo run --release --locked --example update_tool -- @toolArgs | Out-File -Encoding utf8NoBOM installer\Output\latest.json
+          if ($LASTEXITCODE -ne 0) { throw "Manifest signing failed" }
+          Get-Content installer\Output\latest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: messenger-desktop-${{ steps.version.outputs.version }}-windows
+          path: |
+            desktop/target/release/messenger.exe
+            desktop/installer/Output/*.exe
+            desktop/installer/Output/latest.json
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#desktop-v}"
+          notes="desktop/release-notes/${version}.md"
+          [ -f "$notes" ] || { echo "Messenger Desktop ${version}" > /tmp/notes.md; notes=/tmp/notes.md; }
+          ls -la dist dist/* || true
+          installer=$(find dist -name "Messenger-Setup-${version}.exe" | head -1)
+          manifest=$(find dist -name latest.json | head -1)
+          sha256sum "$installer" | sed 's#  .*/#  #' > "Messenger-Setup-${version}.exe.sha256"
+          # Draft: nothing is public (and no client sees the update) until it is published manually.
+          gh release create "$TAG" "$installer" "$manifest" "Messenger-Setup-${version}.exe.sha256" \
+            --draft --title "Messenger Desktop ${version}" --notes-file "$notes"

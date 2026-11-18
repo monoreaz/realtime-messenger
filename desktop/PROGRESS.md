@@ -13,9 +13,10 @@ backend (`/api/*`, `/ws`) exactly like the web client does.
   signed in-app updates (Telegram-style).
 
 ## Current stage
-**Milestones 2–4 in progress.** The app compiles on Linux. The unit tests pass. The Windows
-type-check status is under *Build status*. No Windows build yet (needs GitHub Actions, push
-pending approval).
+**M1–M5 implemented; M6/M7 prepared, waiting for the first GitHub push.** The app runs
+against a real backend (live end-to-end test). It was visually checked headless on Linux.
+The Windows target type-checks. The CI workflow, installer script and signed-update pipeline
+are written but not yet run on GitHub.
 
 ## Architecture (desktop/src)
 | Module | Role |
@@ -107,15 +108,36 @@ Legend: ✅ implemented (compiles; logic unit-tested where noted) · 🔶 partia
 - ✅ Proper shutdown (settings saved on close request)
 
 ### Distribution
-- ❌ GitHub Actions Windows workflow
-- ❌ Inno Setup installer (per-user, Start Menu, AppUserModelID, uninstall, upgrades)
-- 🔶 In-app updates: client side done + unit-tested (signature, replay, tamper, version);
-  manifest publishing + signing key + release workflow not done
+- 🔶 GitHub Actions `.github/workflows/desktop.yml` (windows-latest: test, clippy, release build,
+  installer, artifact; `desktop-v*` tag → signed `latest.json` + **draft** release). Not run yet.
+- 🔶 Inno Setup `installer/messenger.iss`: per-user (no UAC), Start Menu + optional desktop
+  shortcut with AppUserModelID, uninstaller, fixed AppId for upgrades, closes the running app,
+  relaunches after silent update (`/UPDATE=1`). Not run yet.
+- ✅ Icon: `assets/icon.ico` (16–256 px, `cargo run --example make_icon`), embedded by build.rs on Windows.
+- ✅ In-app updates (client): finds the newest published `desktop-v*` GitHub release via the API,
+  downloads in the background with progress, and checks SHA-256 and the Ed25519 signature (covering version +
+  hash), re-verifies before running the installer, skip/later, cleanup of old installers.
+  Unit-tested (tamper, replay, wrong key, release selection). The real key pair was verified end to end.
+- Signing key: private seed at messenger-01 `~/messenger/secrets/desktop-update-signing-key`
+  (gitignored, 0600) → must be added as GitHub secret `DESKTOP_UPDATE_SIGNING_KEY`.
+  Public key in `update-public-key.txt`. Tool: `cargo run --example update_tool -- keygen|manifest`.
 
-## Build status
-- Linux (rust:1-bookworm container on messenger-01): `cargo check` ✅, `cargo test` ✅ (25 tests)
-- Windows target type-check (`cargo check --target x86_64-pc-windows-msvc`): see the latest run below
-- Windows build on GitHub Actions: not run yet
+### Release procedure (when asked)
+1. Bump `version` in Cargo.toml, add `release-notes/<version>.md`, commit.
+2. Tag `desktop-v<version>` and push the tag (ask first) → CI builds, signs, creates a draft release.
+3. Owner reviews and publishes the draft → clients see the update.
+
+## Build status / test results (2026-11-18)
+- Linux (rust:1-bookworm container on messenger-01): `cargo check` ✅, `cargo test` ✅ (29 unit tests)
+- Windows target type-check (`cargo check --target x86_64-pc-windows-msvc`) ✅
+- Live end-to-end test against a throwaway backend (`scripts/it-stack.sh up`, then
+  `BUILD_NETWORK=desktop_it BUILD_ENV="-e MESSENGER_IT_SERVER=http://it-proxy" scripts/remote-cargo.sh test live_tests`) ✅:
+  login, remember-me restore with cookie rotation, errors, search, private chat, realtime delivery, typing, read receipts,
+  reply/edit/pin/unpin/delete, validation, pagination, image upload + decoding, profile/avatar,
+  groups + permissions, sessions, admin block → account.blocked, logout.
+- Headless UI run (Xvfb, tiny-skia; `scripts/shoot.sh`): chat list, conversation, context menu,
+  settings, group info, image viewer, new group, narrow layout ✅ (screenshots reviewed).
+- Windows build on GitHub Actions: not run yet (needs push).
 
 ## How to build/test (from agent-01)
 ```
@@ -125,14 +147,15 @@ desktop/scripts/remote-cargo.sh check --target x86_64-pc-windows-msvc
 The script rsyncs `desktop/` to messenger-01 and runs cargo in Docker (capped 3 CPUs / 5 GB).
 
 ## Known issues / limitations
-- Not yet run against a real backend or on Windows.
+- Not yet run on Windows itself.
+- iced 0.14 bugs avoided: keyed_column state corruption (use column); tiny-skia partial repaint
+  artifacts (seen headless; affects the CPU fallback renderer only).
 - Composer is single-line (same as web `<input type=text>`).
 - Text in bubbles is not selectable (iced limitation); use "Copy text".
 - Chat list previews are truncated by an estimated character count.
 
 ## Next steps
-1. Integration-test the client against a throwaway backend stack (backend image + tmpfs postgres).
-2. Headless screenshots for visual comparison with the web UI.
-3. GitHub Actions Windows workflow (ask before pushing).
-4. icon.ico, installer, update signing key + release workflow.
-5. Native audio calls.
+1. Push `feature/desktop` (approval needed) → fix whatever the first Windows CI run reports.
+2. Owner adds the `DESKTOP_UPDATE_SIGNING_KEY` secret; test an update 0.1.0 → 0.1.1 with draft releases.
+3. Native audio calls (webrtc-rs + cpal + Opus), compatible with the web's WebRTC signalling.
+4. Performance pass on Windows (startup time, idle CPU, memory with large chats).

@@ -1,2 +1,3 @@
-# Base64 Ed25519 update-signing public key goes on the first line.
-# Until it is set, in-app updates are disabled in this build.
+# Base64 Ed25519 public key for verifying signed updates (first non-comment line).
+# The matching private key is the GitHub Actions secret DESKTOP_UPDATE_SIGNING_KEY.
+PypYGK8XW7Hx8FmeS70p8lWrhpfXdCpa6fVStSgVHkI=
