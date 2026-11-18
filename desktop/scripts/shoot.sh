@@ -54,3 +54,10 @@ xdotool key Escape
 # Narrow window layout.
 xdotool search --name "^Messenger" windowsize 700 760; shot 09-narrow 2
 kill $app 2>/dev/null || true
+# Sign-in screen: a fresh profile without a remembered session.
+sleep 1; fresh=$(mktemp -d); mkdir -p "$fresh/config"
+printf '{"server":"http://it-proxy","auto_update":false,"notifications":false,"window_width":%s,"window_height":%s}' "$W" "$H" > "$fresh/config/settings.json"
+ICED_BACKEND=${ICED_BACKEND:-tiny-skia} MESSENGER_DATA_DIR="$fresh" RUST_LOG=warn /target/debug/messenger >> /src/shots/app.log 2>&1 &
+app=$!
+sleep 5; repaint; shot 10-auth 1
+kill $app 2>/dev/null || true

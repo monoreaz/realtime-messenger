@@ -346,7 +346,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             .push(label("Requires Tailscale when the server is on a tailnet.", theme::TEXT_XS, theme::TEXT_3));
     }
 
-    let card = container(form).width(400).padding(32).style(theme::float);
+    let card = container(form).width(400).padding(widgets::padding(36.0, 32.0, 26.0, 32.0)).style(theme::auth_card);
     container(iced::widget::scrollable(container(card).center_x(Length::Fill).padding(24)).style(theme::scroll))
         .center(Length::Fill)
         .into()

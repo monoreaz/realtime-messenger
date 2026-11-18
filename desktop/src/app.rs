@@ -71,6 +71,11 @@ pub struct App {
     pub focused: bool,
     pub updater: Updater,
     pub window_size: iced::Size,
+    /// Physical pixels per logical pixel, for composing the backdrop at full resolution.
+    pub scale: f32,
+    /// Composed backdrop and the window size it was made for (see `ui::backdrop`).
+    pub backdrop: Option<(iced::Size, iced::widget::image::Handle)>,
+    backdrop_generation: u64,
 }
 
 pub enum Screen {
@@ -212,6 +217,9 @@ pub struct Toast {
 #[derive(Debug, Clone)]
 pub enum Message {
     WindowOpened(window::Id),
+    ScaleFactor(f32),
+    BackdropDue(u64),
+    BackdropReady(u64, iced::Size, iced::widget::image::Handle),
     Window(window::Id, window::Event),
     Key(Key, keyboard::Modifiers),
     Tick,
@@ -329,7 +337,7 @@ impl App {
             None => Screen::Auth(ui::auth::State::new(&settings)),
         };
 
-        let app = Self {
+        let mut app = Self {
             dirs,
             settings,
             store,
@@ -339,8 +347,20 @@ impl App {
             focused: true,
             updater,
             window_size,
+            scale: 1.0,
+            backdrop: None,
+            backdrop_generation: 0,
         };
+        tasks.push(app.schedule_backdrop());
         (app, Task::batch(tasks))
+    }
+
+    /// Recompose the backdrop once the window size has settled (resizes arrive per frame).
+    fn schedule_backdrop(&mut self) -> Task<Message> {
+        self.backdrop_generation += 1;
+        let generation = self.backdrop_generation;
+        let delay = if self.backdrop.is_none() { 0 } else { 120 };
+        Task::perform(async move { tokio::time::sleep(std::time::Duration::from_millis(delay)).await; generation }, Message::BackdropDue)
     }
 
     pub fn title(&self) -> String {
@@ -413,8 +433,32 @@ impl App {
         match message {
             Message::WindowOpened(id) => {
                 self.window = Some(id);
+                let scale = window::scale_factor(id).map(Message::ScaleFactor);
                 if self.settings.window_maximized {
-                    return window::maximize(id, true);
+                    return Task::batch([window::maximize(id, true), scale]);
+                }
+                scale
+            }
+            Message::ScaleFactor(scale) => {
+                self.scale = scale;
+                self.schedule_backdrop()
+            }
+            Message::BackdropDue(generation) => {
+                if generation != self.backdrop_generation {
+                    return Task::none();
+                }
+                let (size, scale) = (self.window_size, self.scale);
+                Task::perform(
+                    async move { tokio::task::spawn_blocking(move || ui::backdrop::compose(size, scale)).await.ok() },
+                    move |handle| match handle {
+                        Some(handle) => Message::BackdropReady(generation, size, handle),
+                        None => Message::BackdropDue(u64::MAX),
+                    },
+                )
+            }
+            Message::BackdropReady(generation, size, handle) => {
+                if generation == self.backdrop_generation || self.backdrop.is_none() {
+                    self.backdrop = Some((size, handle));
                 }
                 Task::none()
             }
@@ -487,6 +531,11 @@ impl App {
                     self.settings.window_width = size.width;
                     self.settings.window_height = size.height;
                 }
+                return self.schedule_backdrop();
+            }
+            window::Event::Rescaled(scale) => {
+                self.scale = scale;
+                return self.schedule_backdrop();
             }
             window::Event::CloseRequested => {
                 return match self.window {

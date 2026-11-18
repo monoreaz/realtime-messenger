@@ -30,7 +30,7 @@ real Windows PC, the first signed release (needs the GitHub secret), and an upda
 | `storage.rs` | `%APPDATA%\Messenger\settings.json`; remembered session in `session.bin`, DPAPI-encrypted on Windows |
 | `media.rs` | lazy image loading (via `sensor`), off-thread decode + downscale, LRU per size class |
 | `dialogs.rs` | delete confirm, image viewer, incoming call, peer/group profile, create group, pinned list, admin panel |
-| `ui/` | `theme.rs` (design tokens), `icons.rs` (web icon paths as SVG), `widgets.rs`, `auth.rs`, `sidebar.rs`, `chat.rs`, `settings.rs` |
+| `ui/` | `backdrop.rs` (web backdrop + glass window composed per window size), `theme.rs` (design tokens), `icons.rs` (web icon paths as SVG), `widgets.rs`, `auth.rs`, `sidebar.rs`, `chat.rs`, `settings.rs` |
 | `update.rs` | manifest check, background download with progress, SHA-256 + Ed25519 verification, silent installer launch |
 | `platform.rs` | notifications (WinRT toast via notify-rust), AppUserModelID, open-with-default-app |
 | `call/` | native audio calls: `engine.rs` (str0m WebRTC, sans-IO loop), `codec.rs` (pure-Rust libopus), `audio.rs` (cpal WASAPI, resampling, jitter buffer) |
@@ -52,6 +52,12 @@ Key decisions:
   (Tailscale included); browser TURN relay candidates are used as remote candidates. str0m has no TURN
   client, so the desktop does not allocate relays itself. This works on the tailnet and LAN, and when the
   other side relays.
+- **Backdrop / glass window**: `assets/backdrop*.jpg` are rendered from the web CSS by
+  `scripts/gen-backdrop.mjs` (rerun after changing the web backdrop). `ui/backdrop.rs` composes scene,
+  `--shadow-window`, frosted glass, sheen and rim into one image per window size (off-thread, debounced),
+  so GPU and CPU renderers look identical and a frame costs one blit. Same breakpoint as the web (>1100 px:
+  floating window). iced paints shadows beneath translucent fills, so translucent surfaces carry no shadow.
+  `scripts/web-shoot.mjs` takes matching web screenshots for side-by-side checks.
 - **Videos**: there is no in-app decoder. Videos are downloaded to the cache and opened in the default player.
 
 ## Feature parity checklist

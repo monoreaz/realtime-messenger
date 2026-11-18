@@ -51,7 +51,6 @@ pub const LINE: Color = white(0.07);
 pub const LINE_STRONG: Color = white(0.12);
 pub const LINE_FOCUS: Color = rgba(186, 208, 255, 0.55);
 // Shell: the glass window colour composited over the backdrop.
-pub const SHELL_TOP: Color = rgb(0x22, 0x23, 0x26);
 pub const SHELL_BOTTOM: Color = rgb(0x17, 0x18, 0x1a);
 pub const FLOAT: Color = rgb(0x24, 0x24, 0x28);
 pub const FLOAT_SOLID: Color = rgb(0x1f, 0x1f, 0x22);
@@ -105,7 +104,7 @@ fn linear(angle: f32, top: Color, bottom: Color) -> Background {
     Background::Gradient(Gradient::Linear(Linear::new(Degrees(angle)).add_stop(0.0, top).add_stop(1.0, bottom)))
 }
 
-fn shadow(color: Color, y: f32, blur: f32) -> Shadow {
+pub fn shadow(color: Color, y: f32, blur: f32) -> Shadow {
     Shadow { color, offset: Vector::new(0.0, y), blur_radius: blur }
 }
 
@@ -113,19 +112,20 @@ fn shadow(color: Color, y: f32, blur: f32) -> Shadow {
 // Containers
 // ----------------------------------------------------------------------------
 
-/// The whole window: the "glass shell" over the canvas.
+/// The whole window: web `--canvas` (the backdrop image and glass window are drawn on top).
 pub fn shell(_: &Theme) -> container::Style {
     container::Style {
-        background: Some(linear(180.0, SHELL_TOP, SHELL_BOTTOM)),
+        background: Some(rgb(0x0d, 0x0d, 0x0f).into()),
         text_color: Some(TEXT_1),
         ..container::Style::default()
     }
 }
 
-pub fn rail(_: &Theme) -> container::Style {
-    container::Style {
+/// `corner`: the window radius, so the rail's tint follows the rounded left edge.
+pub fn rail(corner: f32) -> impl Fn(&Theme) -> container::Style {
+    move |_| container::Style {
         background: Some(black(0.14).into()),
-        border: Border { color: LINE, width: 0.0, radius: Radius::default() },
+        border: Border { color: LINE, width: 0.0, radius: Radius { top_left: corner, bottom_left: corner, ..Radius::default() } },
         ..container::Style::default()
     }
 }
@@ -134,8 +134,12 @@ pub fn sidebar(_: &Theme) -> container::Style {
     container::Style { background: Some(black(0.06).into()), ..container::Style::default() }
 }
 
-pub fn chat_header(_: &Theme) -> container::Style {
-    container::Style { background: Some(white(0.015).into()), ..container::Style::default() }
+pub fn chat_header(corner: f32) -> impl Fn(&Theme) -> container::Style {
+    move |_| container::Style {
+        background: Some(white(0.015).into()),
+        border: Border { radius: Radius { top_right: corner, ..Radius::default() }, ..Border::default() },
+        ..container::Style::default()
+    }
 }
 
 pub fn divider(_: &Theme) -> container::Style {
@@ -154,6 +158,18 @@ pub fn card(_: &Theme) -> container::Style {
     container::Style {
         background: Some(SURFACE_1.into()),
         border: Border { color: LINE, width: 1.0, radius: RADIUS_MD.into() },
+        ..container::Style::default()
+    }
+}
+
+/// Web `.auth-card`: rgba(24,24,27,.62) blurred over the backdrop centre, pre-composited
+/// (iced draws shadows beneath translucent fills, which would darken it).
+pub fn auth_card(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(rgb(0x27, 0x26, 0x27).into()),
+        text_color: Some(TEXT_1),
+        border: Border { color: white(0.1), width: 1.0, radius: RADIUS_XL.into() },
+        shadow: shadow(black(0.75), 40.0, 120.0),
         ..container::Style::default()
     }
 }
@@ -214,7 +230,9 @@ pub fn bubble(own: bool, top_join: bool, bottom_join: bool, glow: f32) -> impl F
             shadow: if glow > 0.0 {
                 Shadow { color: Color { a: 0.45 * glow, ..ACCENT }, offset: Vector::new(0.0, 0.0), blur_radius: 18.0 * glow }
             } else {
-                shadow(black(if own { 0.18 } else { 0.12 }), 1.0, 1.0)
+                // Web own: 0 1px 1px .18 + 0 10px 26px -18px .7. Incoming bubbles are translucent,
+                // and iced paints shadows beneath the fill, so they get none.
+                if own { shadow(black(0.22), 2.0, 6.0) } else { Shadow::default() }
             },
             ..container::Style::default()
         }
@@ -268,11 +286,12 @@ pub fn presence_dot(_: &Theme) -> container::Style {
     }
 }
 
+/// Web `.message-form`. Its --shadow-md would be painted beneath the translucent fill by
+/// iced (turning the field nearly black), so the native version has none.
 pub fn composer(focused: bool) -> impl Fn(&Theme) -> container::Style {
     move |_| container::Style {
-        background: Some(white(0.06).into()),
-        border: Border { color: if focused { LINE_FOCUS } else { LINE_STRONG }, width: 1.0, radius: 20.0.into() },
-        shadow: shadow(black(0.22), 6.0, 16.0),
+        background: Some(white(if focused { 0.075 } else { 0.06 }).into()),
+        border: Border { color: if focused { rgba(182, 204, 255, 0.34) } else { LINE_STRONG }, width: 1.0, radius: 20.0.into() },
         ..container::Style::default()
     }
 }
@@ -313,7 +332,7 @@ pub fn toast(error: bool) -> impl Fn(&Theme) -> container::Style {
 
 pub fn pinned_bar(_: &Theme) -> container::Style {
     container::Style {
-        background: Some(white(0.025).into()),
+        background: Some(black(0.08).into()),
         ..container::Style::default()
     }
 }
@@ -442,10 +461,23 @@ pub fn icon_button(_: &Theme, status: button::Status) -> button::Style {
 pub fn send_button(_: &Theme, status: button::Status) -> button::Style {
     let (background, text) = match status {
         button::Status::Hovered | button::Status::Pressed => (PRIMARY_HOVER, PRIMARY_TEXT),
-        button::Status::Disabled => (white(0.12), white(0.35)),
+        button::Status::Disabled => (SURFACE_2, TEXT_3),
         button::Status::Active => (PRIMARY, PRIMARY_TEXT),
     };
-    button::Style { shadow: shadow(black(0.28), 1.0, 2.0), ..base_button(Some(background), text, 14.0) }
+    let shadow = if status == button::Status::Disabled { Shadow::default() } else { shadow(black(0.28), 1.0, 2.0) };
+    button::Style { shadow, ..base_button(Some(background), text, 14.0) }
+}
+
+/// Web `.call-button` / `.pinned-list-toggle`: a quiet bordered tile.
+pub fn outline_button(radius: f32) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let (background, text) = match status {
+            button::Status::Hovered | button::Status::Pressed => (SURFACE_3, TEXT_1),
+            button::Status::Disabled => (white(0.014), white(0.36)),
+            button::Status::Active => (SURFACE_1, TEXT_2),
+        };
+        button::Style { border: Border { color: LINE, width: 1.0, radius: radius.into() }, ..base_button(Some(background), text, radius) }
+    }
 }
 
 pub fn chat_item(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {

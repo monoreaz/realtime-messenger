@@ -11,7 +11,7 @@ use crate::app::{App, Main, Message, WsStatus, search_input};
 use crate::dialogs::Open;
 use crate::format;
 
-pub fn rail<'a>(main: &'a Main, ctx: Ctx<'a>) -> Element<'a, Message> {
+pub fn rail<'a>(main: &'a Main, ctx: Ctx<'a>, corner: f32) -> Element<'a, Message> {
     let status_color = match main.ws_status {
         WsStatus::Connected => theme::SUCCESS,
         WsStatus::Connecting => theme::WARNING,
@@ -33,15 +33,12 @@ pub fn rail<'a>(main: &'a Main, ctx: Ctx<'a>) -> Element<'a, Message> {
     .style(|theme, status| iced::widget::button::Style { border: iced::Border { radius: 999.0.into(), ..Default::default() }, ..theme::icon_button(theme, status) })
     .on_press(Message::OpenDialog(Open::Settings));
 
-    let separator = container(Space::new()).width(24).height(1).style(theme::divider);
     let mut top = column![
         super::auth::brand_mark(40.0),
-        widgets::gap(10.0),
-        separator,
-        widgets::gap(10.0),
+        widgets::gap(18.0),
         tip(widgets::rail_button(Icon::Plus, Message::OpenDialog(Open::CreateGroup), theme::Tile::Primary), "New group"),
     ]
-    .spacing(8)
+    .spacing(6)
     .align_x(Alignment::Center);
     if main.me.is_admin {
         top = top.push(tip(widgets::rail_button(Icon::Shield, Message::OpenDialog(Open::Admin), theme::Tile::Normal), "Admin panel"));
@@ -60,7 +57,7 @@ pub fn rail<'a>(main: &'a Main, ctx: Ctx<'a>) -> Element<'a, Message> {
         .width(theme::RAIL_WIDTH)
         .height(Length::Fill)
         .padding([18, 0])
-        .style(theme::rail)
+        .style(theme::rail(corner))
         .into()
 }
 

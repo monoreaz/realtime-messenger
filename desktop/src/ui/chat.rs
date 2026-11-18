@@ -23,12 +23,13 @@ fn message_id(id: &str) -> Id {
     Id::from(format!("msg-{id}"))
 }
 
-pub fn view<'a>(app: &'a App, main: &'a Main, ctx: Ctx<'a>, width: f32, narrow: bool) -> Element<'a, Message> {
+/// `corner`: the window radius at the panel's top-right (the header tint follows it).
+pub fn view<'a>(app: &'a App, main: &'a Main, ctx: Ctx<'a>, width: f32, narrow: bool, corner: f32) -> Element<'a, Message> {
     let Some(chat) = main.active.as_ref().and_then(|id| main.chats.iter().find(|chat| &chat.id == id)) else {
         return empty_state();
     };
     let thread = main.threads.get(&chat.id);
-    let mut panel = column![header(main, chat, ctx, narrow), widgets::divider()];
+    let mut panel = column![header(main, chat, ctx, narrow, corner), widgets::divider()];
     if let Some(thread) = thread
         && !thread.pins.is_empty()
     {
@@ -69,7 +70,7 @@ fn typing_names(main: &Main, chat: &Chat) -> Option<String> {
     })
 }
 
-fn header<'a>(main: &'a Main, chat: &'a Chat, ctx: Ctx<'a>, narrow: bool) -> Element<'a, Message> {
+fn header<'a>(main: &'a Main, chat: &'a Chat, ctx: Ctx<'a>, narrow: bool, corner: f32) -> Element<'a, Message> {
     let typing = typing_names(main, chat);
     let mut bar = row![].spacing(12).align_y(Alignment::Center);
     if narrow {
@@ -101,13 +102,18 @@ fn header<'a>(main: &'a Main, chat: &'a Chat, ctx: Ctx<'a>, narrow: bool) -> Ele
     if let Some(peer) = chat.peer.as_ref().filter(|_| !chat.is_group()) {
         let can_call = main.ws_status == WsStatus::Connected && main.call.is_none();
         let call = iced::widget::tooltip(
-            widgets::icon_button(Icon::Phone, can_call.then(|| Message::StartCall(peer.id.clone(), peer.name().to_owned())), 40.0),
+            button(container(widgets::icon(Icon::Phone, 19.0, if can_call { theme::TEXT_2 } else { theme::white(0.36) })).center(38))
+                .padding(0)
+                .width(40)
+                .height(40)
+                .style(theme::outline_button(12.0))
+                .on_press_maybe(can_call.then(|| Message::StartCall(peer.id.clone(), peer.name().to_owned()))),
             container(label("Start audio call", theme::TEXT_XS, theme::TEXT_1)).padding([5, 9]).style(theme::menu),
             iced::widget::tooltip::Position::Bottom,
         );
         bar = bar.push(call);
     }
-    container(bar).height(68).padding(widgets::padding(10.0, 14.0, 10.0, if narrow { 10.0 } else { 22.0 })).align_y(Alignment::Center).style(theme::chat_header).into()
+    container(bar).height(68).padding(widgets::padding(10.0, 14.0, 10.0, if narrow { 10.0 } else { 22.0 })).align_y(Alignment::Center).style(theme::chat_header(corner)).into()
 }
 
 fn pinned_bar<'a>(main: &'a Main, chat: &'a Chat, thread: &'a Thread) -> Element<'a, Message> {
@@ -116,22 +122,26 @@ fn pinned_bar<'a>(main: &'a Main, chat: &'a Chat, thread: &'a Thread) -> Element
     let title = if thread.pins.len() == 1 { "Pinned message".to_owned() } else { format!("Pinned message #{} of {}", index + 1, thread.pins.len()) };
     let strip = button(
         row![
-            container(widgets::icon(Icon::Pin, 15.0, theme::ACCENT)).center(30).style(theme::pill(theme::ACCENT, theme::ACCENT_SOFT)),
-            column![strong(title, theme::TEXT_SM, theme::ACCENT), label(format::ellipsize(&pin.preview(), 90), theme::TEXT_SM, theme::TEXT_2).wrapping(text::Wrapping::None)].spacing(1).width(Length::Fill),
+            container(widgets::icon(Icon::Pin, 17.0, theme::ACCENT)).center(32).style(|_| container::Style {
+                background: Some(theme::ACCENT_SOFT.into()),
+                border: iced::Border { radius: 10.0.into(), ..iced::Border::default() },
+                ..container::Style::default()
+            }),
+            column![strong(title, 12.0, theme::ACCENT), label(format::ellipsize(&pin.preview(), 90), theme::TEXT_SM, theme::TEXT_2).wrapping(text::Wrapping::None)].spacing(1).width(Length::Fill),
             widgets::icon(Icon::ChevronRight, 16.0, theme::TEXT_3),
         ]
-        .spacing(10)
+        .spacing(12)
         .align_y(Alignment::Center),
     )
-    .padding([6, 10])
+    .padding(widgets::padding(5.0, 10.0, 5.0, 6.0))
     .width(Length::Fill)
-    .style(theme::bare_button)
+    .style(theme::list_button)
     .on_press(Message::CyclePin);
-    let list = button(row![widgets::icon(Icon::List, 16.0, theme::TEXT_2), label(thread.pins.len().to_string(), theme::TEXT_SM, theme::TEXT_2)].spacing(6).align_y(Alignment::Center))
-        .padding([6, 10])
-        .style(theme::icon_button)
+    let list = button(row![widgets::icon(Icon::List, 17.0, theme::TEXT_2), label(thread.pins.len().to_string(), theme::TEXT_SM, theme::TEXT_2)].spacing(6).align_y(Alignment::Center))
+        .padding([8, 12])
+        .style(theme::outline_button(11.0))
         .on_press(Message::OpenDialog(Open::Pinned(chat.id.clone())));
-    container(row![strip, list].spacing(6).align_y(Alignment::Center)).padding([4, 14]).style(theme::pinned_bar).into()
+    container(row![strip, list].spacing(8).align_y(Alignment::Center)).padding(widgets::padding(8.0, 14.0, 8.0, 16.0)).style(theme::pinned_bar).into()
 }
 
 fn same_run(a: &ChatMessage, b: &ChatMessage) -> bool {
@@ -486,14 +496,14 @@ fn composer<'a>(main: &'a Main, chat: &'a Chat, width: f32) -> Element<'a, Messa
         .on_input(Message::ComposerChanged)
         .on_submit_maybe(can_send.then_some(Message::ComposerSubmit))
         .padding([10, 8])
-        .size(theme::TEXT_MD)
+        .size(15.0)
         .style(theme::bare_field);
     let mut form = row![].spacing(4).align_y(Alignment::Center);
     if composer.editing.is_none() {
         form = form.push(widgets::icon_button(Icon::Paperclip, (!composer.sending).then_some(Message::Attach), 40.0));
     }
     form = form.push(input).push(
-        button(container(widgets::icon(if composer.editing.is_some() { Icon::Check } else { Icon::Send }, 19.0, if can_send { theme::PRIMARY_TEXT } else { theme::white(0.35) })).center(40))
+        button(container(widgets::icon(if composer.editing.is_some() { Icon::Check } else { Icon::Send }, 19.0, if can_send { theme::PRIMARY_TEXT } else { theme::TEXT_3 })).center(40))
             .padding(0)
             .style(theme::send_button)
             .on_press_maybe(can_send.then_some(Message::ComposerSubmit)),
