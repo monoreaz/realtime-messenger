@@ -1,7 +1,7 @@
 //! Small reusable building blocks shared by all screens.
 
-use iced::widget::{Space, button, column, container, mouse_area, opaque, row, sensor, stack, svg, text};
-use iced::{Alignment, Color, Element, Length, Padding, mouse};
+use iced::widget::{Space, button, column, container, mouse_area, opaque, row, scrollable, sensor, stack, svg, text};
+use iced::{Alignment, Color, Element, Length, Padding};
 
 use super::icons::Icon;
 use super::theme;
@@ -189,13 +189,15 @@ pub fn group_avatar<'a>(seed: &str, size: f32) -> Element<'a, Message> {
 
 /// Centered modal card over a dimmed backdrop; clicking the backdrop sends `on_close`.
 pub fn modal<'a>(content: Element<'a, Message>, width: f32, on_close: Option<Message>) -> Element<'a, Message> {
-    let card = container(content).width(width).max_height(820).padding(22).style(theme::float);
+    let card = container(content).width(width).padding(22).style(theme::float);
     let backdrop = mouse_area(container(Space::new()).width(Length::Fill).height(Length::Fill).style(theme::backdrop));
     let backdrop = match on_close {
         Some(message) => backdrop.on_press(message),
         None => backdrop,
     };
-    stack![backdrop, container(opaque(card)).center(Length::Fill).padding(24)].into()
+    // Scroll the whole card when the window is too short for it.
+    let centered = container(opaque(card)).center_x(Length::Fill).padding(24);
+    stack![backdrop, container(scrollable(container(centered).center_y(Length::Shrink)).width(Length::Fill).style(theme::scroll)).center_y(Length::Fill)].into()
 }
 
 pub fn dialog_header<'a>(title: impl text::IntoFragment<'a>, on_close: Option<Message>) -> Element<'a, Message> {
@@ -208,10 +210,6 @@ pub fn dialog_header<'a>(title: impl text::IntoFragment<'a>, on_close: Option<Me
     .into()
 }
 
-pub fn pointer<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-    mouse_area(content).interaction(mouse::Interaction::Pointer).into()
-}
-
 pub fn padding(top: f32, right: f32, bottom: f32, left: f32) -> Padding {
     Padding { top, right, bottom, left }
 }
@@ -220,10 +218,3 @@ pub fn info_row<'a>(name: &'a str, value: Element<'a, Message>) -> Element<'a, M
     column![label(name, theme::TEXT_XS, theme::TEXT_3).font(theme::MEDIUM), value].spacing(3).into()
 }
 
-/// Stable `Copy` key for keyed columns.
-pub fn key(id: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    id.hash(&mut hasher);
-    hasher.finish()
-}

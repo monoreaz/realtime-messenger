@@ -25,7 +25,8 @@ const PING_INTERVAL: Duration = Duration::from_secs(25);
 const SILENCE_TIMEOUT: Duration = Duration::from_secs(70);
 const MAX_BACKOFF_SECS: u64 = 30;
 
-/// Events pushed by the server.
+/// Events pushed by the server. Some fields are kept for completeness of the wire format.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum ServerEvent {
@@ -98,6 +99,7 @@ impl Connection {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum Event {
     /// Authenticated and ready; outgoing frames go through the handle.
@@ -134,7 +136,8 @@ enum Outcome {
     Failed,
 }
 
-fn run(config: Config) -> impl futures::Stream<Item = Event> {
+/// The raw event stream behind [`subscription`] (also used by integration tests).
+pub fn run(config: Config) -> impl futures::Stream<Item = Event> {
     iced::stream::channel(128, async move |mut output: futures::channel::mpsc::Sender<Event>| {
         let client = config.client;
         let mut attempt: u32 = 0;

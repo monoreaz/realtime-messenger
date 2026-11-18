@@ -11,6 +11,9 @@ mod storage;
 mod ui;
 mod update;
 
+#[cfg(test)]
+mod live_tests;
+
 use app::App;
 
 fn window_icon() -> Option<iced::window::Icon> {

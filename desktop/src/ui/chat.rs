@@ -3,7 +3,7 @@
 use chrono::Utc;
 use iced::advanced::widget::operation::scrollable::AbsoluteOffset;
 use iced::advanced::widget::operation::{Operation, Outcome, Scrollable};
-use iced::widget::{Id, Space, button, column, container, keyed_column, mouse_area, row, scrollable, sensor, stack, text, text_input};
+use iced::widget::{Id, Space, button, column, container, mouse_area, row, scrollable, sensor, stack, text, text_input};
 use iced::{Alignment, Color, Element, Length, Point, Rectangle, Task, Vector};
 
 use super::icons::Icon;
@@ -167,34 +167,35 @@ fn messages<'a>(app: &'a App, main: &'a Main, chat: &'a Chat, thread: Option<&'a
         .into();
     }
 
-    let max_bubble = (width * 0.76).min(620.0).max(220.0);
+    let max_bubble = (width * 0.76).clamp(220.0, 620.0);
     let now = Utc::now();
     let highlight = main.highlight.as_ref().map(|(id, _)| id.as_str());
     let mut items = Vec::with_capacity(visible.len() * 2 + 1);
     if thread.loading_older || thread.hidden_older() > 0 || thread.has_older {
         let note = if thread.loading_older { "Loading earlier messages…" } else { "" };
-        items.push((widgets::key("__older"), container(label(note, theme::TEXT_XS, theme::TEXT_3)).center_x(Length::Fill).height(28).into()));
+        items.push(container(label(note, theme::TEXT_XS, theme::TEXT_3)).center_x(Length::Fill).height(28).into());
     }
     for (index, message) in visible.iter().enumerate() {
         let previous = index.checked_sub(1).map(|i| visible[i]);
         let next = visible.get(index + 1).copied();
         let new_day = previous.is_none_or(|previous| !format::same_day(previous.created_at, message.created_at));
         if new_day {
-            items.push((
-                widgets::key(&format!("day-{}", message.id)),
+            items.push(
                 container(container(label(format::message_date(message.created_at, now), theme::TEXT_XS, theme::TEXT_2).font(theme::MEDIUM)).padding([4, 12]).style(theme::date_chip))
                     .center_x(Length::Fill)
                     .padding([10, 0])
                     .into(),
-            ));
+            );
         }
         let joined_above = !new_day && previous.is_some_and(|previous| same_run(previous, message));
         let joined_below = next.is_some_and(|next| same_run(message, next) && format::same_day(message.created_at, next.created_at));
         let highlighted = highlight == Some(message.id.as_str());
-        items.push((widgets::key(&message.id), message_row(app, main, chat, message, ctx, max_bubble, joined_above, joined_below, highlighted)));
+        items.push(message_row(app, main, chat, message, ctx, max_bubble, joined_above, joined_below, highlighted));
     }
 
-    let list = keyed_column(items).padding(widgets::padding(12.0, (width * 0.04).clamp(12.0, 56.0), 12.0, (width * 0.04).clamp(12.0, 56.0)));
+    // Plain column: iced 0.14's keyed column skips widget-type checks when diffing,
+    // which corrupts state when a chat's message list is replaced.
+    let list = column(items).padding(widgets::padding(12.0, (width * 0.04).clamp(12.0, 56.0), 12.0, (width * 0.04).clamp(12.0, 56.0)));
     let scroll = scrollable(list).id(messages_scroll()).anchor_bottom().on_scroll(Message::Scrolled).height(Length::Fill).width(Length::Fill).style(theme::scroll);
 
     let mut layers = stack![scroll].width(Length::Fill).height(Length::Fill);

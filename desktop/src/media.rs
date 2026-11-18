@@ -133,6 +133,7 @@ impl Cache {
         }
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries.len()
     }

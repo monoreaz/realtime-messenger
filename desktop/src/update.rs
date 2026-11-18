@@ -140,7 +140,6 @@ pub enum Msg {
     Install,
     Later,
     Skip,
-    OpenDialog,
 }
 
 pub struct Updater {
@@ -312,7 +311,6 @@ impl Updater {
                 }
                 self.dismissed = true;
             }
-            Msg::OpenDialog => {}
         }
         Task::none()
     }

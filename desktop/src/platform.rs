@@ -2,6 +2,7 @@
 
 /// AppUserModelID shared with the installer's Start Menu shortcut, so toasts are
 /// attributed to "Messenger" and taskbar buttons group correctly.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub const APP_USER_MODEL_ID: &str = "monoreaz.Messenger";
 
 /// Must run before any window is created.

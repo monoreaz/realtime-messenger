@@ -84,7 +84,6 @@ pub enum Action {
     Login { server: String, username: String, password: String, remember: bool },
     Request { server: String, request: Request },
     RetryRestore,
-    OpenUrl(String),
 }
 
 impl State {

@@ -32,6 +32,19 @@ const TYPING_SEND_INTERVAL: Duration = Duration::from_secs(3);
 const TYPING_IDLE_STOP: Duration = Duration::from_secs(4);
 const TYPING_EXPIRY: Duration = Duration::from_secs(6);
 
+/// The message list is anchored to the bottom, so offset 0 (start) is the newest message.
+pub fn scroll_to_bottom<T>() -> Task<T> {
+    operation::snap_to(messages_scroll(), operation::RelativeOffset::START)
+}
+
+/// Last pointer position, recorded straight from the event stream. Tracking it through
+/// messages would rebuild the whole view on every mouse move.
+static POINTER: std::sync::Mutex<Point> = std::sync::Mutex::new(Point::ORIGIN);
+
+pub fn pointer_position() -> Point {
+    *POINTER.lock().unwrap()
+}
+
 pub fn messages_scroll() -> Id {
     Id::from(MESSAGES_SCROLL)
 }
@@ -57,7 +70,6 @@ pub struct App {
     pub window: Option<window::Id>,
     pub focused: bool,
     pub updater: Updater,
-    pub cursor: Point,
     pub window_size: iced::Size,
 }
 
@@ -199,7 +211,6 @@ pub enum Message {
     WindowOpened(window::Id),
     Window(window::Id, window::Event),
     Key(Key, keyboard::Modifiers),
-    CursorMoved(Point),
     Tick,
     Quit(bool),
 
@@ -221,7 +232,7 @@ pub enum Message {
     PinsLoaded { chat_id: String, result: Result<Vec<ChatMessage>, ApiError> },
     Scrolled(scrollable::Viewport),
     ScrollToLatest,
-    MarkedRead(String, Result<(), ApiError>),
+    MarkedRead(Result<(), ApiError>),
     JumpTo(String),
     CyclePin,
 
@@ -273,9 +284,7 @@ pub enum Message {
     Dialog(dialogs::Msg),
     CloseDialog,
     DismissToast,
-    Notice(String),
     Failure(String),
-    OpenUrl(String),
     Update(updater::Msg),
 }
 
@@ -314,7 +323,6 @@ impl App {
             window: None,
             focused: true,
             updater,
-            cursor: Point::ORIGIN,
             window_size,
         };
         (app, Task::batch(tasks))
@@ -334,8 +342,10 @@ impl App {
         let mut subscriptions = vec![
             window::open_events().map(Message::WindowOpened),
             window::events().map(|(id, event)| Message::Window(id, event)),
-            keyboard::listen().filter_map(|event| match event {
-                keyboard::Event::KeyPressed { key, modifiers, .. } => Some(Message::Key(key, modifiers)),
+            // Raw key presses (including ones a focused text field consumed), so shortcuts
+            // like Esc or Ctrl+K also work while typing.
+            iced::event::listen_with(|event, _status, _window| match event {
+                iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => Some(Message::Key(key, modifiers)),
                 _ => None,
             }),
         ];
@@ -351,22 +361,13 @@ impl App {
             if needs_tick {
                 subscriptions.push(iced::time::every(Duration::from_millis(500)).map(|_| Message::Tick));
             }
-            if main.context_menu.is_some() {
-                subscriptions.push(iced::event::listen_with(|event, _, _| match event {
-                    iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::CursorMoved(position)),
-                    _ => None,
-                }));
-            }
         }
-        subscriptions.push(
-            iced::event::listen_with(|event, status, _| match (event, status) {
-                (iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Right)), _) => None,
-                (iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }), iced::event::Status::Ignored) => {
-                    Some(Message::CursorMoved(position))
-                }
-                _ => None,
-            }),
-        );
+        subscriptions.push(iced::event::listen_with(|event, _, _| {
+            if let iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) = event {
+                *POINTER.lock().unwrap() = position;
+            }
+            None
+        }));
         subscriptions.push(self.updater.subscription().map(Message::Update));
         Subscription::batch(subscriptions)
     }
@@ -395,10 +396,6 @@ impl App {
                 Task::none()
             }
             Message::Window(id, event) => self.window_event(id, event),
-            Message::CursorMoved(position) => {
-                self.cursor = position;
-                Task::none()
-            }
             Message::Key(key, modifiers) => self.key(key, modifiers),
             Message::Tick => self.tick(),
             Message::Quit(maximized) => {
@@ -441,10 +438,6 @@ impl App {
             }
             Message::LoggedOut => {
                 self.screen = Screen::Auth(ui::auth::State::new(&self.settings));
-                Task::none()
-            }
-            Message::OpenUrl(url) => {
-                platform::open(url);
                 Task::none()
             }
             Message::Update(msg) => {
@@ -553,10 +546,6 @@ impl App {
                 let client = self.client.clone();
                 Task::perform(async move { request.run(&client).await }, |result| Message::Auth(ui::auth::Msg::Done(result)))
             }
-            ui::auth::Action::OpenUrl(url) => {
-                platform::open(url);
-                Task::none()
-            }
         }
     }
 
@@ -664,7 +653,7 @@ impl App {
         }
         chat.unread_count = 0;
         let client = self.client.clone();
-        Task::perform(async move { client.mark_read(&chat_id).await }, move |result| Message::MarkedRead(String::new(), result))
+        Task::perform(async move { client.mark_read(&chat_id).await }, Message::MarkedRead)
     }
 
     // ========================================================================
@@ -676,7 +665,7 @@ impl App {
         let focused = self.focused;
         let notifications = self.settings.notifications;
         let previews = self.settings.notification_previews;
-        let cursor = self.cursor;
+        let cursor = pointer_position();
         let Screen::Main(main) = &mut self.screen else { return Task::none() };
 
         match message {
@@ -751,7 +740,7 @@ impl App {
                     }
                 }
                 if is_active && before.is_none() {
-                    tasks.push(operation::snap_to_end(messages_scroll()));
+                    tasks.push(scroll_to_bottom());
                     tasks.push(self.mark_active_read());
                 }
                 return Task::batch(tasks);
@@ -773,7 +762,8 @@ impl App {
                 let mut tasks = Vec::new();
                 if main.at_bottom && !was_bottom {
                     if let Some(thread) = main.active.as_ref().and_then(|id| main.threads.get_mut(id)) {
-                        thread.window = thread.window.min(RENDER_WINDOW).max(RENDER_WINDOW);
+                        // Back at the newest message: render only the default window again.
+                        thread.window = RENDER_WINDOW;
                     }
                     tasks.push(self.mark_active_read());
                 }
@@ -787,9 +777,9 @@ impl App {
                     thread.window = RENDER_WINDOW;
                 }
                 main.at_bottom = true;
-                return Task::batch([operation::snap_to_end(messages_scroll()), self.mark_active_read()]);
+                return Task::batch([scroll_to_bottom(), self.mark_active_read()]);
             }
-            Message::MarkedRead(_, result) => {
+            Message::MarkedRead(result) => {
                 if let Err(error) = result {
                     log::info!("mark read failed: {error}");
                 }
@@ -894,7 +884,7 @@ impl App {
                         apply_message(main, message, false);
                         if main.active.as_deref() == Some(chat_id.as_str()) {
                             main.at_bottom = true;
-                            return operation::snap_to_end(messages_scroll());
+                            return scroll_to_bottom();
                         }
                     }
                     Err(error) => {
@@ -1077,7 +1067,7 @@ impl App {
             }
             Message::Dialog(msg) => {
                 let Some(dialog) = main.dialog.as_mut() else { return Task::none() };
-                let context = dialogs::Context { client: &client, me: &main.me, chats: &main.chats, settings: &mut self.settings, dirs: &self.dirs, updater: &self.updater, connection: main.connection.as_ref() };
+                let context = dialogs::Context { client: &client, me: &main.me, chats: &main.chats, settings: &mut self.settings, dirs: &self.dirs, connection: main.connection.as_ref() };
                 let outcome = dialog.update(msg, context);
                 return self.dialog_outcome(outcome);
             }
@@ -1086,7 +1076,6 @@ impl App {
                 return self.mark_active_read();
             }
             Message::DismissToast => main.toast = None,
-            Message::Notice(text) => self.toast(text, false),
             Message::Failure(text) => self.toast(text, true),
             _ => {}
         }
@@ -1102,10 +1091,6 @@ impl App {
             dialogs::Outcome::Close => {
                 main.dialog = None;
                 self.mark_active_read()
-            }
-            dialogs::Outcome::CloseWith(task) => {
-                main.dialog = None;
-                task
             }
             dialogs::Outcome::ProfileUpdated(user) => {
                 main.me = user;
@@ -1126,10 +1111,6 @@ impl App {
                 self.jump_to(message_id)
             }
             dialogs::Outcome::SignedOut(reason) => self.session_expired(reason),
-            dialogs::Outcome::Toast(text, error) => {
-                self.toast(text, error);
-                Task::none()
-            }
             dialogs::Outcome::ServerChanged => {
                 // Signing out is required to switch servers.
                 self.main_update(Message::CloseDialog).chain(Task::done(Message::Logout))
@@ -1216,7 +1197,7 @@ impl App {
                 },
                 move |result| Message::PinsLoaded { chat_id: pins_chat.clone(), result },
             ),
-            operation::snap_to_end(messages_scroll()),
+            scroll_to_bottom(),
             operation::focus(composer_input()),
         ];
         if let (Some(connection), Some(chat)) = (&main.connection, main.chats.iter().find(|chat| Some(&chat.id) == main.active.as_ref()))
@@ -1374,11 +1355,7 @@ impl App {
                 return Task::batch(tasks);
             }
             ws::Event::Disconnected { .. } => {
-                if main.ws_status == WsStatus::Connected {
-                    main.ws_status = WsStatus::Offline;
-                } else if main.ws_status == WsStatus::Connecting && main.connection.is_none() {
-                    main.ws_status = WsStatus::Offline;
-                }
+                main.ws_status = WsStatus::Offline;
                 main.connection = None;
                 main.online.clear();
                 main.typing.clear();
@@ -1431,7 +1408,7 @@ impl App {
                         }
                     }
                     if stick {
-                        tasks.push(operation::snap_to_end(messages_scroll()));
+                        tasks.push(scroll_to_bottom());
                         if incoming {
                             tasks.push(self.mark_active_read());
                         }

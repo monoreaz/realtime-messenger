@@ -73,11 +73,9 @@ pub const TEXT_2XL: f32 = 26.0;
 // Radii
 pub const RADIUS_SM: f32 = 10.0;
 pub const RADIUS_MD: f32 = 14.0;
-pub const RADIUS_LG: f32 = 18.0;
 pub const RADIUS_XL: f32 = 24.0;
 
 pub const RAIL_WIDTH: f32 = 68.0;
-pub const SIDEBAR_WIDTH: f32 = 330.0;
 
 #[cfg(windows)]
 pub const FONT_FAMILY: &str = "Segoe UI";
@@ -270,7 +268,7 @@ pub fn composer(focused: bool) -> impl Fn(&Theme) -> container::Style {
     move |_| container::Style {
         background: Some(white(0.06).into()),
         border: Border { color: if focused { LINE_FOCUS } else { LINE_STRONG }, width: 1.0, radius: 20.0.into() },
-        shadow: shadow(black(0.45), 10.0, 28.0),
+        shadow: shadow(black(0.22), 6.0, 16.0),
         ..container::Style::default()
     }
 }
@@ -524,16 +522,6 @@ pub fn editor(_: &Theme, status: text_editor::Status) -> text_editor::Style {
     text_editor::Style {
         background: SUNKEN.into(),
         border: Border { color: border, width: 1.0, radius: 12.0.into() },
-        placeholder: TEXT_3,
-        value: TEXT_1,
-        selection: rgba(182, 204, 255, 0.32),
-    }
-}
-
-pub fn bare_editor(_: &Theme, _status: text_editor::Status) -> text_editor::Style {
-    text_editor::Style {
-        background: Color::TRANSPARENT.into(),
-        border: Border::default(),
         placeholder: TEXT_3,
         value: TEXT_1,
         selection: rgba(182, 204, 255, 0.32),

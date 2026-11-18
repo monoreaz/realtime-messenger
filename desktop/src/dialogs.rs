@@ -71,13 +71,11 @@ pub enum Outcome {
     None,
     Task(Task<Message>),
     Close,
-    CloseWith(Task<Message>),
     ProfileUpdated(User),
     ChatUpdated(Chat),
     OpenChat(Chat),
     Jump(String),
     SignedOut(String),
-    Toast(String, bool),
     ServerChanged,
 }
 
@@ -87,7 +85,6 @@ pub struct Context<'a> {
     pub chats: &'a [Chat],
     pub settings: &'a mut Settings,
     pub dirs: &'a Dirs,
-    pub updater: &'a Updater,
     pub connection: Option<&'a Connection>,
 }
 
@@ -866,7 +863,7 @@ fn create_group<'a>(state: &'a CreateGroup, main: &'a Main, ctx: Ctx<'a>) -> Ele
         text_editor(&state.description)
             .placeholder("What is this group about?")
             .on_action(|action| dmsg(Msg::Create(CreateMsg::Description(action))))
-            .height(70)
+            .height(64)
             .padding(11)
             .style(theme::editor),
         field_label("Add participants"),
@@ -877,14 +874,16 @@ fn create_group<'a>(state: &'a CreateGroup, main: &'a Main, ctx: Ctx<'a>) -> Ele
         content = content.push(label("Your chats", theme::TEXT_XS, theme::TEXT_3).font(theme::SEMIBOLD));
     }
     content = content
-        .push(scrollable(listing).height(170).style(theme::scroll))
+        .push(scrollable(listing).height(Length::Fill).style(theme::scroll))
         .push(label("Select at least two people. You will be added automatically.", theme::TEXT_XS, theme::TEXT_3))
         .push(chips);
     if let Some(error) = &state.error {
         content = content.push(widgets::error_text(error.as_str()));
     }
     content = content.push(widgets::primary_button(submit_label, can_create.then(|| dmsg(Msg::Create(CreateMsg::Submit)))));
-    modal(scrollable(content).style(theme::scroll).into(), 460.0, None)
+    // Fixed-height card; only the participant list scrolls (an outer scrollable around
+    // the whole form clipped its children incorrectly).
+    modal(container(content).height(Length::Fixed(700.0)).into(), 460.0, None)
 }
 
 fn pinned_list<'a>(main: &'a Main, chat_id: &'a str) -> Element<'a, Message> {

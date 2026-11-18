@@ -255,6 +255,7 @@ impl Client {
         check(response, "Could not resend verification email").await.map(drop)
     }
 
+    #[allow(dead_code)] // email links open in the browser; kept for API completeness
     pub async fn verify_email(&self, token: &str) -> Result<()> {
         let response = self.inner.http.post(self.api("/auth/verify-email")).json(&serde_json::json!({ "token": token })).send().await?;
         check(response, "Email verification failed").await.map(drop)
@@ -265,6 +266,7 @@ impl Client {
         check(response, "Could not send password reset email").await.map(drop)
     }
 
+    #[allow(dead_code)] // reset links open in the browser; kept for API completeness
     pub async fn reset_password(&self, token: &str, new_password: &str) -> Result<()> {
         let response = self
             .inner
@@ -542,6 +544,7 @@ impl Client {
         self.send_json(Method::PATCH, &format!("/admin/users/{user_id}/block"), Some(&body), "Admin request failed").await
     }
 
+    #[allow(dead_code)] // for native audio calls (planned); exercised by live tests
     pub async fn ice_servers(&self) -> Result<serde_json::Value> {
         let value: serde_json::Value = self.get_json("/calls/ice", "Could not prepare the call connection. Please try again.").await?;
         Ok(value.get("iceServers").cloned().unwrap_or_default())

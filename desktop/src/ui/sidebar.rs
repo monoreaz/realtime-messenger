@@ -1,7 +1,7 @@
 //! Navigation rail + chat list (`aside.sidebar` in the web app).
 
 use chrono::Utc;
-use iced::widget::{Space, button, column, container, keyed_column, row, scrollable, stack, text, text_input};
+use iced::widget::{Space, button, column, container, row, scrollable, stack, text, text_input};
 use iced::{Alignment, Element, Length};
 
 use super::icons::Icon;
@@ -139,7 +139,7 @@ pub fn view<'a>(app: &'a App, main: &'a Main, ctx: Ctx<'a>, width: f32) -> Eleme
         .center_x(Length::Fill)
         .into()
     } else {
-        keyed_column(visible.into_iter().map(|chat| {
+        column(visible.into_iter().map(|chat| {
             let active = main.active.as_ref() == Some(&chat.id);
             let unread = chat.unread_count > 0;
             let avatar = match &chat.peer {
@@ -181,7 +181,7 @@ pub fn view<'a>(app: &'a App, main: &'a Main, ctx: Ctx<'a>, width: f32) -> Eleme
                 .width(Length::Fill)
                 .style(theme::chat_item(active))
                 .on_press(Message::OpenChat(chat.id.clone()));
-            (widgets::key(&chat.id), item.into())
+            item.into()
         }))
         .spacing(2)
         .into()
