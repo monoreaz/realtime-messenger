@@ -3,6 +3,7 @@
 
 mod api;
 mod app;
+mod call;
 mod dialogs;
 mod format;
 mod media;

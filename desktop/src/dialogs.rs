@@ -4,7 +4,6 @@ use iced::widget::{Space, button, column, container, image, row, scrollable, tex
 use iced::{Alignment, Element, Length, Task};
 
 use crate::api::models::{AdminStats, AdminUser, Chat, GroupDetails, GroupRole, Message as ChatMessage, User};
-use crate::api::ws::Connection;
 use crate::api::{ApiError, Client};
 use crate::app::{Main, Message};
 use crate::format;
@@ -19,7 +18,6 @@ use crate::update::Updater;
 pub enum Dialog {
     ConfirmDelete { message: ChatMessage, busy: bool },
     Viewer(Viewer),
-    IncomingCall { call_id: String, peer_id: String, name: String },
     Settings(Box<settings_ui::State>),
     Peer(User),
     Group(GroupProfile),
@@ -32,7 +30,7 @@ pub enum Dialog {
 impl Dialog {
     /// Dialogs that hide the chat (so incoming messages are not "read").
     pub fn covers_chat(&self) -> bool {
-        !matches!(self, Dialog::ConfirmDelete { .. } | Dialog::IncomingCall { .. })
+        !matches!(self, Dialog::ConfirmDelete { .. })
     }
 }
 
@@ -57,7 +55,6 @@ pub enum Open {
 pub enum Msg {
     ConfirmDelete,
     ViewerStep(i32),
-    DeclineCall,
     Settings(settings_ui::Msg),
     Group(GroupMsg),
     Create(CreateMsg),
@@ -70,7 +67,6 @@ pub enum Msg {
 pub enum Outcome {
     None,
     Task(Task<Message>),
-    Close,
     ProfileUpdated(User),
     ChatUpdated(Chat),
     OpenChat(Chat),
@@ -85,7 +81,6 @@ pub struct Context<'a> {
     pub chats: &'a [Chat],
     pub settings: &'a mut Settings,
     pub dirs: &'a Dirs,
-    pub connection: Option<&'a Connection>,
 }
 
 fn dialog_task(task: Task<Msg>) -> Outcome {
@@ -132,12 +127,6 @@ impl Dialog {
                 viewer.index = ((viewer.index as i32 + step).rem_euclid(len)) as usize;
                 let key = Key::new(viewer.urls[viewer.index].clone(), Size::Full);
                 Outcome::Task(Task::done(Message::MediaVisible(key)))
-            }
-            (Dialog::IncomingCall { call_id, peer_id, .. }, Msg::DeclineCall) => {
-                if let Some(connection) = context.connection {
-                    connection.send(serde_json::json!({ "type": "call.end", "call_id": call_id, "peer_id": peer_id, "reason": "declined" }));
-                }
-                Outcome::Close
             }
             (Dialog::Settings(state), Msg::Settings(msg)) => state.update(msg, context),
             (Dialog::Group(state), Msg::Group(msg)) => state.update(msg, context),
@@ -579,7 +568,6 @@ pub fn view<'a>(dialog: &'a Dialog, main: &'a Main, ctx: Ctx<'a>, app: &'a crate
     match dialog {
         Dialog::ConfirmDelete { busy, .. } => confirm_delete(*busy),
         Dialog::Viewer(viewer) => image_viewer(viewer, ctx),
-        Dialog::IncomingCall { name, .. } => incoming_call(name),
         Dialog::Settings(state) => settings_ui::view(state, main, ctx, app),
         Dialog::Peer(user) => peer_profile(user, ctx, main.online.contains(&user.id), close()),
         Dialog::Group(state) => match main.chats.iter().find(|chat| chat.id == state.chat_id) {
@@ -637,21 +625,6 @@ fn image_viewer<'a>(viewer: &'a Viewer, ctx: Ctx<'a>) -> Element<'a, Message> {
         stage
     };
     container(column![top, middle].spacing(12)).padding(18).width(Length::Fill).height(Length::Fill).style(theme::image_viewer).into()
-}
-
-fn incoming_call<'a>(name: &'a str) -> Element<'a, Message> {
-    let content = column![
-        container(widgets::icon(Icon::Phone, 24.0, theme::SUCCESS)).center(52).style(theme::pill(theme::SUCCESS, theme::SUCCESS_SOFT)),
-        gap(4.0),
-        strong("Incoming audio call", theme::TEXT_LG, theme::TEXT_1),
-        label(format!("{name} is calling you"), theme::TEXT_MD, theme::TEXT_2),
-        label("Audio calls are not available in the desktop app yet. Answer in the web or Android app.", theme::TEXT_SM, theme::TEXT_3).center(),
-        gap(8.0),
-        row![widgets::small_button("Dismiss", Some(Message::CloseDialog)), widgets::small_danger("Decline", Some(dmsg(Msg::DeclineCall)))].spacing(10),
-    ]
-    .spacing(6)
-    .align_x(Alignment::Center);
-    modal(content.into(), 360.0, None)
 }
 
 pub fn peer_profile<'a>(user: &'a User, ctx: Ctx<'a>, online: bool, on_close: Option<Message>) -> Element<'a, Message> {

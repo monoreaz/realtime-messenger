@@ -2,6 +2,7 @@
 //! menus and toasts layered on top.
 
 pub mod auth;
+pub mod call;
 pub mod chat;
 pub mod icons;
 pub mod settings;
@@ -53,6 +54,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
             let mut layers = stack![layout].width(Length::Fill).height(Length::Fill);
             if let Some(menu) = &main.context_menu {
                 layers = layers.push(chat::context_menu(main, menu, app.window_size, &app.client));
+            }
+            if let Some(call) = &main.call {
+                layers = layers.push(call::card(main, call, ctx));
             }
             if let Some(dialog) = &main.dialog {
                 layers = layers.push(crate::dialogs::view(dialog, main, ctx, app));

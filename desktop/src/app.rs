@@ -111,6 +111,7 @@ pub struct Main {
     pub highlight: Option<(String, Instant)>,
     pub pin_cursor: usize,
     pub pending_jump: Option<String>,
+    pub call: Option<crate::call::ActiveCall>,
 }
 
 #[derive(Debug, Default)]
@@ -286,6 +287,13 @@ pub enum Message {
     DismissToast,
     Failure(String),
     Update(updater::Msg),
+
+    // Calls
+    StartCall(String, String),
+    AcceptCall,
+    EndCall,
+    ToggleMute,
+    CallUpdate(String, crate::call::engine::Update),
 }
 
 // ============================================================================
@@ -354,7 +362,11 @@ impl App {
                 ws::subscription(ws::Config { client: self.client.clone(), generation: main.ws_generation }).map(Message::Ws),
             );
             // A coarse tick only while something time-based is pending keeps idle CPU at zero.
-            let needs_tick = !main.typing.is_empty()
+            if let Some(call) = &main.call {
+                subscriptions.push(call.subscription().map(|(id, update)| Message::CallUpdate(id, update)));
+            }
+            let needs_tick = main.call.as_ref().is_some_and(|call| call.started_at.is_some())
+                || !main.typing.is_empty()
                 || main.typing_sent.is_some()
                 || main.toast.is_some()
                 || main.highlight.is_some();
@@ -504,6 +516,7 @@ impl App {
             highlight: None,
             pin_cursor: 0,
             pending_jump: None,
+            call: None,
         };
         self.screen = Screen::Main(Box::new(main));
         self.load_chats()
@@ -1067,13 +1080,16 @@ impl App {
             }
             Message::Dialog(msg) => {
                 let Some(dialog) = main.dialog.as_mut() else { return Task::none() };
-                let context = dialogs::Context { client: &client, me: &main.me, chats: &main.chats, settings: &mut self.settings, dirs: &self.dirs, connection: main.connection.as_ref() };
+                let context = dialogs::Context { client: &client, me: &main.me, chats: &main.chats, settings: &mut self.settings, dirs: &self.dirs };
                 let outcome = dialog.update(msg, context);
                 return self.dialog_outcome(outcome);
             }
             Message::CloseDialog => {
                 main.dialog = None;
                 return self.mark_active_read();
+            }
+            Message::StartCall(..) | Message::AcceptCall | Message::EndCall | Message::ToggleMute | Message::CallUpdate(..) => {
+                return self.call_message(message);
             }
             Message::DismissToast => main.toast = None,
             Message::Failure(text) => self.toast(text, true),
@@ -1088,10 +1104,6 @@ impl App {
         match outcome {
             dialogs::Outcome::None => Task::none(),
             dialogs::Outcome::Task(task) => task,
-            dialogs::Outcome::Close => {
-                main.dialog = None;
-                self.mark_active_read()
-            }
             dialogs::Outcome::ProfileUpdated(user) => {
                 main.me = user;
                 Task::none()
@@ -1445,31 +1457,156 @@ impl App {
         Task::none()
     }
 
-    /// Audio calls are not available natively yet; show incoming calls so the user can
-    /// answer them in the web or Android app, and record nothing locally.
-    fn call_signal(&mut self, value: serde_json::Value) -> Task<Message> {
+    fn send_signal(main: &Main, value: serde_json::Value) -> bool {
+        main.connection.as_ref().is_some_and(|connection| connection.send(value))
+    }
+
+    fn call_message(&mut self, message: Message) -> Task<Message> {
+        use crate::call::{ActiveCall, Phase, engine::{Command, Update}};
         let Screen::Main(main) = &mut self.screen else { return Task::none() };
-        let kind = value.get("type").and_then(|kind| kind.as_str()).unwrap_or_default();
-        let call_id = value.get("call_id").and_then(|id| id.as_str()).unwrap_or_default().to_owned();
-        match kind {
+        match message {
+            Message::StartCall(peer_id, name) => {
+                if main.call.is_some() {
+                    return Task::none();
+                }
+                if main.connection.is_none() {
+                    self.toast("You are offline. Try again when the connection is back.", true);
+                    return Task::none();
+                }
+                main.call = Some(ActiveCall::outgoing(peer_id, name));
+            }
+            Message::AcceptCall => {
+                if let Some(call) = &mut main.call
+                    && call.phase == Phase::Incoming
+                {
+                    call.accepted = true;
+                    call.phase = Phase::Connecting;
+                }
+            }
+            Message::EndCall => {
+                if let Some(call) = main.call.take() {
+                    Self::send_signal(main, serde_json::json!({ "type": "call.end", "call_id": call.id, "peer_id": call.peer_id }));
+                    if let Some(handle) = &call.handle {
+                        handle.send(Command::Hangup);
+                    }
+                }
+            }
+            Message::ToggleMute => {
+                if let Some(call) = &mut main.call {
+                    call.muted = !call.muted;
+                    if let Some(handle) = &call.handle {
+                        handle.set_muted(call.muted);
+                    }
+                }
+            }
+            Message::CallUpdate(id, update) => {
+                let Some(call) = main.call.as_mut().filter(|call| call.id == id) else { return Task::none() };
+                let (call_id, peer_id) = (call.id.clone(), call.peer_id.clone());
+                match update {
+                    Update::Ready(handle) => {
+                        handle.set_muted(call.muted);
+                        for candidate in call.pending_candidates.drain(..) {
+                            handle.send(Command::RemoteCandidate(candidate));
+                        }
+                        if let Some(answer) = call.pending_answer.take() {
+                            handle.send(Command::RemoteAnswer(answer));
+                        }
+                        call.handle = Some(handle);
+                    }
+                    Update::Description { kind, sdp } => {
+                        let event = if kind == "offer" { "call.offer" } else { "call.answer" };
+                        let sent = Self::send_signal(main, serde_json::json!({ "type": event, "call_id": call_id, "peer_id": peer_id, "sdp": { "type": kind, "sdp": sdp } }));
+                        if !sent {
+                            main.call = None;
+                            self.toast("No connection to the server.", true);
+                        }
+                    }
+                    Update::Candidate(candidate) => {
+                        Self::send_signal(main, serde_json::json!({ "type": "call.ice", "call_id": call_id, "peer_id": peer_id, "candidate": candidate }));
+                    }
+                    Update::Connected => {
+                        call.phase = Phase::Connected;
+                        call.started_at.get_or_insert_with(Instant::now);
+                        Self::send_signal(main, serde_json::json!({ "type": "call.connected", "call_id": call_id, "peer_id": peer_id }));
+                    }
+                    Update::Failed(error) => {
+                        Self::send_signal(main, serde_json::json!({ "type": "call.end", "call_id": call_id, "peer_id": peer_id, "reason": "failed" }));
+                        main.call = None;
+                        self.toast(error, true);
+                    }
+                    Update::Ended { .. } => {}
+                }
+            }
+            _ => {}
+        }
+        Task::none()
+    }
+
+    /// WebRTC signalling relayed by the server (see `backend/app/api/ws.py`).
+    fn call_signal(&mut self, value: serde_json::Value) -> Task<Message> {
+        use crate::call::{ActiveCall, Phase, engine::Command};
+        let notifications = self.settings.notifications;
+        let window = self.window;
+        let Screen::Main(main) = &mut self.screen else { return Task::none() };
+        let text = |key: &str| value.get(key).and_then(|v| v.as_str()).map(str::to_owned);
+        let kind = text("type").unwrap_or_default();
+        let call_id = text("call_id").unwrap_or_default();
+        let sdp = value.get("sdp").and_then(|sdp| sdp.get("sdp")).and_then(|sdp| sdp.as_str()).map(str::to_owned);
+        match kind.as_str() {
             "call.offer" => {
-                let name = value.get("name").and_then(|name| name.as_str()).unwrap_or("Someone").to_owned();
-                let peer_id = value.get("user_id").and_then(|id| id.as_str()).unwrap_or_default().to_owned();
-                if self.settings.notifications {
+                let expired = value.get("expires_at").and_then(|v| v.as_i64()).is_some_and(|at| at <= Utc::now().timestamp_millis());
+                let (Some(peer_id), Some(offer)) = (text("user_id"), sdp) else { return Task::none() };
+                if expired || main.call.as_ref().is_some_and(|call| call.id == call_id) {
+                    return Task::none();
+                }
+                if main.call.is_some() {
+                    Self::send_signal(main, serde_json::json!({ "type": "call.end", "call_id": call_id, "peer_id": peer_id, "reason": "busy" }));
+                    return Task::none();
+                }
+                let name = text("name").unwrap_or_else(|| "Someone".into());
+                if notifications {
                     platform::notify("Incoming audio call".into(), format!("{name} is calling you"));
                 }
-                if main.dialog.is_none() {
-                    main.dialog = Some(Dialog::IncomingCall { call_id, peer_id, name });
+                main.call = Some(ActiveCall::incoming(call_id, peer_id, name, offer));
+                if let Some(id) = window {
+                    return Task::batch([window::request_user_attention(id, Some(window::UserAttention::Critical)), window::gain_focus(id)]);
                 }
-                if let Some(id) = self.window {
-                    return window::request_user_attention(id, Some(window::UserAttention::Critical));
+            }
+            "call.answer" => {
+                let Some(call) = main.call.as_mut().filter(|call| call.id == call_id && call.outgoing) else { return Task::none() };
+                let Some(answer) = sdp else { return Task::none() };
+                if call.phase != Phase::Connected {
+                    call.phase = Phase::Connecting;
+                }
+                match &call.handle {
+                    Some(handle) => handle.send(Command::RemoteAnswer(answer)),
+                    None => call.pending_answer = Some(answer),
+                }
+            }
+            "call.ice" => {
+                let Some(call) = main.call.as_mut().filter(|call| call.id == call_id) else { return Task::none() };
+                let Some(candidate) = value.get("candidate").cloned() else { return Task::none() };
+                match &call.handle {
+                    Some(handle) => handle.send(Command::RemoteCandidate(candidate)),
+                    None => call.pending_candidates.push(candidate),
+                }
+            }
+            "call.started" => {
+                if let Some(call) = main.call.as_mut().filter(|call| call.id == call_id) {
+                    call.phase = Phase::Connected;
+                    call.started_at.get_or_insert_with(Instant::now);
                 }
             }
             "call.end" => {
-                if let Some(Dialog::IncomingCall { call_id: current, .. }) = &main.dialog
-                    && *current == call_id
-                {
-                    main.dialog = None;
+                if main.call.as_ref().is_some_and(|call| call.id == call_id) {
+                    let call = main.call.take().expect("checked above");
+                    if let Some(handle) = &call.handle {
+                        handle.send(Command::Hangup);
+                    }
+                    let mine_declined = !call.outgoing && call.phase == Phase::Incoming;
+                    if let Some(reason) = crate::call::end_reason(text("reason").as_deref()).filter(|_| !mine_declined) {
+                        self.toast(reason, false);
+                    }
                 }
             }
             _ => {}

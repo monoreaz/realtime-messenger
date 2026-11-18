@@ -37,14 +37,20 @@ sha2 = "0.10"
 semver = "1"
 base64 = "0.22"
 arboard = "3"
+unsafe-libopus = "0.2"
+if-addrs = "0.13"
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_UI_Shell",
 ] }
 notify-rust = { version = "4.19", default-features = false }
+cpal = "0.18"
+str0m = { version = "0.25", default-features = false, features = ["wincrypto"] }
 
 [target.'cfg(not(windows))'.dependencies]
+str0m = { version = "0.25", default-features = false, features = ["rust-crypto"] }
 notify-rust = { version = "4.19" }
 
 [build-dependencies]

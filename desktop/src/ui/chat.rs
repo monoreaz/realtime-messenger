@@ -97,15 +97,15 @@ fn header<'a>(main: &'a Main, chat: &'a Chat, ctx: Ctx<'a>, narrow: bool) -> Ele
         .style(theme::bare_button)
         .on_press(open);
     bar = bar.push(identity).push(hspace());
-    if !chat.is_group() {
+    if let Some(peer) = chat.peer.as_ref().filter(|_| !chat.is_group()) {
+        let can_call = main.ws_status == WsStatus::Connected && main.call.is_none();
         let call = iced::widget::tooltip(
-            widgets::icon_button(Icon::Phone, None, 40.0),
-            container(label("Audio calls are coming to the desktop app. Use the web or Android app for now.", theme::TEXT_XS, theme::TEXT_1).width(220)).padding([6, 10]).style(theme::menu),
+            widgets::icon_button(Icon::Phone, can_call.then(|| Message::StartCall(peer.id.clone(), peer.name().to_owned())), 40.0),
+            container(label("Start audio call", theme::TEXT_XS, theme::TEXT_1)).padding([5, 9]).style(theme::menu),
             iced::widget::tooltip::Position::Bottom,
         );
         bar = bar.push(call);
     }
-    let _ = main.ws_status == WsStatus::Connected;
     container(bar).height(68).padding(widgets::padding(10.0, 14.0, 10.0, if narrow { 10.0 } else { 22.0 })).align_y(Alignment::Center).style(theme::chat_header).into()
 }
 
