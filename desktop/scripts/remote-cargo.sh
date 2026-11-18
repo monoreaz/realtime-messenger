@@ -8,7 +8,7 @@
 set -euo pipefail
 HOST=${BUILD_HOST:-messenger-01}
 here=$(cd "$(dirname "$0")/.." && pwd)
-rsync -a --delete --exclude target/ --exclude '*.swp' "$here/" "$HOST:desktop-build/"
+rsync -a --delete --exclude target/ --exclude shots/ --exclude '*.swp' "$here/" "$HOST:desktop-build/"
 args=$(printf '%q ' "$@")
 status=0
 ssh -o BatchMode=yes "$HOST" "docker run --rm --init --cpus=3 --memory=5g \

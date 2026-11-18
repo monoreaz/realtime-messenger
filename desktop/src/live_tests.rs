@@ -278,3 +278,119 @@ async fn seed_demo_data() {
     carol.mark_read(&chat.id).await.unwrap();
     let _ = carol_user;
 }
+
+/// Desktop call engine ⇄ real browser (the web app in Chromium, see scripts/call-interop.mjs).
+/// Bob (this test) first receives a call from alice's browser, then calls her back.
+/// Runs only with MESSENGER_IT_CALL=1 (plus MESSENGER_IT_SERVER).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn call_interop_with_browser() {
+    use crate::call::engine::{self, Command, Role, Update};
+
+    let (Some(server), Ok("1")) = (server(), std::env::var("MESSENGER_IT_CALL").as_deref()) else { return };
+    std::fs::create_dir_all("/src/shots").unwrap();
+    let marker = |name: &str| std::fs::write(format!("/src/shots/{name}"), b"1").unwrap();
+    let bob = Client::new(&server, None);
+    bob.login("bob", PASSWORD, false).await.unwrap();
+    let alice = bob.search_users("alice").await.unwrap().into_iter().find(|user| user.username == "alice").unwrap();
+    let chat = bob.create_private_chat(&alice.id).await.unwrap();
+    bob.send_message(&chat.id, "Call me from the browser", None).await.unwrap();
+    let mut events = events(&bob);
+    let ws = connect(&mut events).await;
+    marker("interop-ready");
+
+    async fn relay(
+        mut engine: std::pin::Pin<Box<dyn Stream<Item = Update> + Send>>,
+        events: &mut Events,
+        ws: &Connection,
+        call_id: &str,
+        peer_id: &str,
+    ) -> (u64, u64) {
+        let mut handle: Option<engine::Handle> = None;
+        let mut pending: Vec<Command> = Vec::new();
+        let mut connected_at = None;
+        loop {
+            tokio::select! {
+                update = engine.next() => match update.expect("engine running") {
+                    Update::Ready(h) => {
+                        for command in pending.drain(..) {
+                            h.send(command);
+                        }
+                        handle = Some(h);
+                    }
+                    Update::Description { kind, sdp } => {
+                        let event = if kind == "offer" { "call.offer" } else { "call.answer" };
+                        ws.send(serde_json::json!({ "type": event, "call_id": call_id, "peer_id": peer_id, "sdp": { "type": kind, "sdp": sdp } }));
+                    }
+                    Update::Candidate(candidate) => {
+                        ws.send(serde_json::json!({ "type": "call.ice", "call_id": call_id, "peer_id": peer_id, "candidate": candidate }));
+                    }
+                    Update::Connected => {
+                        ws.send(serde_json::json!({ "type": "call.connected", "call_id": call_id, "peer_id": peer_id }));
+                        connected_at = Some(tokio::time::Instant::now());
+                    }
+                    Update::Failed(error) => panic!("call failed: {error}"),
+                    Update::Ended { sent, received } => return (sent, received),
+                },
+                event = events.next() => {
+                    if let Some(Event::Server(ServerEvent::Call(value))) = event {
+                        let kind = value["type"].as_str().unwrap_or_default();
+                        // Ignore signals for other (earlier) calls, like the app does.
+                        if value["call_id"].as_str() != Some(call_id) {
+                            continue;
+                        }
+                        let command = match kind {
+                            "call.answer" => Command::RemoteAnswer(value["sdp"]["sdp"].as_str().unwrap().to_owned()),
+                            "call.ice" => Command::RemoteCandidate(value["candidate"].clone()),
+                            "call.end" => panic!("browser ended the call early: {value}"),
+                            _ => continue,
+                        };
+                        // Buffer until the engine is ready, like the app does.
+                        match &handle {
+                            Some(h) => h.send(command),
+                            None => pending.push(command),
+                        }
+                    }
+                }
+                _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                    if connected_at.is_some_and(|at| at.elapsed() > Duration::from_secs(5)) {
+                        handle.as_ref().unwrap().send(Command::Hangup);
+                        ws.send(serde_json::json!({ "type": "call.end", "call_id": call_id, "peer_id": peer_id }));
+                        connected_at = None;
+                    }
+                }
+            }
+        }
+    }
+
+    // A: browser → desktop.
+    let offer = tokio::time::timeout(Duration::from_secs(120), async {
+        loop {
+            if let Some(Event::Server(ServerEvent::Call(value))) = events.next().await
+                && value["type"] == "call.offer"
+            {
+                return value;
+            }
+        }
+    })
+    .await
+    .expect("browser calls within 2 minutes");
+    let call_id = offer["call_id"].as_str().unwrap().to_owned();
+    let engine = Box::pin(engine::run(engine::Config {
+        call_id: call_id.clone(),
+        role: Role::Callee { offer: offer["sdp"]["sdp"].as_str().unwrap().to_owned() },
+        test_tone: Some(523),
+    }));
+    let (sent, received) = relay(engine, &mut events, &ws, &call_id, &alice.id).await;
+    eprintln!("INTEROP A (browser→desktop): sent {sent}, received {received}");
+    assert!(sent > 100 && received > 100, "audio both ways: sent {sent} received {received}");
+
+    // B: desktop → browser.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    marker("interop-phase-b");
+    let call_id = uuid::Uuid::new_v4().to_string();
+    let engine = Box::pin(engine::run(engine::Config { call_id: call_id.clone(), role: Role::Caller, test_tone: Some(784) }));
+    let (sent, received) = relay(engine, &mut events, &ws, &call_id, &alice.id).await;
+    eprintln!("INTEROP B (desktop→browser): sent {sent}, received {received}");
+    assert!(sent > 100 && received > 100, "audio both ways: sent {sent} received {received}");
+    marker("interop-done");
+}
