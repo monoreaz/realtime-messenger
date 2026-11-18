@@ -1,0 +1,2 @@
+# Base64 Ed25519 update-signing public key goes on the first line.
+# Until it is set, in-app updates are disabled in this build.
