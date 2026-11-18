@@ -275,6 +275,16 @@ async fn seed_demo_data() {
     let typo = alice.send_message(&chat.id, "Looks amazing! See you tomorow", None).await.unwrap();
     alice.edit_message(&chat.id, &typo.id, "Looks amazing! See you tomorrow 👋").await.unwrap();
     carol.send_message(&chat.id, "👍", None).await.unwrap();
+    // Own media: a photo without caption, a tall photo with caption, and a video.
+    let square = dir.path().join("square.png");
+    image::RgbaImage::from_fn(300, 300, |x, y| image::Rgba([(x % 256) as u8, (y % 256) as u8, 160, 255])).save(&square).unwrap();
+    alice.send_media(&chat.id, &square, "", None).await.unwrap();
+    let tall = dir.path().join("tall.png");
+    image::RgbaImage::from_fn(360, 640, |_, y| image::Rgba([40, (y / 3) as u8, 120, 255])).save(&tall).unwrap();
+    alice.send_media(&chat.id, &tall, "Our new office from the street", None).await.unwrap();
+    let clip = dir.path().join("clip.mp4");
+    std::fs::write(&clip, b"not really a video, just bytes for layout tests").unwrap();
+    alice.send_media(&chat.id, &clip, "", None).await.unwrap();
     carol.mark_read(&chat.id).await.unwrap();
     let _ = carol_user;
 }

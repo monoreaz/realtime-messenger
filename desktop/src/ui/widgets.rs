@@ -48,20 +48,20 @@ pub fn icon_button<'a>(glyph: Icon, on_press: Option<Message>, tooltip_size: f32
 
 /// Icon button whose glyph follows the button's text colour (hover brightens it).
 pub fn rail_button<'a>(glyph: Icon, on_press: Message) -> Element<'a, Message> {
-    button(
-        container(
-            svg(glyph.handle()).width(21).height(21).style(|_, status| svg::Style {
-                color: Some(if status == svg::Status::Hovered { theme::TEXT_1 } else { theme::TEXT_3 }),
-            }),
-        )
-        .center(42),
-    )
-    .padding(0)
-    .width(42)
-    .height(42)
-    .style(theme::icon_button)
-    .on_press(on_press)
-    .into()
+    // Web `.rail-button:hover`: the whole 42 px square lights up (background + brighter glyph).
+    let make = |color: Color, hovered: bool, on_press: Message| -> Element<'a, Message> {
+        button(container(icon(glyph, 21.0, color)).center(42))
+            .padding(0)
+            .width(42)
+            .height(42)
+            .style(move |theme, status| {
+                let status = if hovered && status == button::Status::Active { button::Status::Hovered } else { status };
+                super::theme::icon_button(theme, status)
+            })
+            .on_press(on_press)
+            .into()
+    };
+    iced::widget::hover(make(theme::TEXT_3, false, on_press.clone()), make(theme::TEXT_1, true, on_press))
 }
 
 pub fn primary_button<'a>(content: impl text::IntoFragment<'a>, on_press: Option<Message>) -> Element<'a, Message> {

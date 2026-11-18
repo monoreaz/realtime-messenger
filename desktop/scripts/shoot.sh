@@ -25,6 +25,8 @@ app=$!
 sleep 6
 xdotool search --sync --name "^Messenger" windowfocus 2>/dev/null || true
 shot 01-chat-list 1
+# Own media messages at the bottom of the first chat.
+click 220 150; repaint; shot 00-own-media 2.5
 # Open the first chat in the list (rail 68px + sidebar; first item ≈ y 140).
 click 220 150; shot 02-conversation 2.5
 # Right-click the newest message bubble (bottom right of the conversation).

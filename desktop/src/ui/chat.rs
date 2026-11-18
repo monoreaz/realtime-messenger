@@ -229,8 +229,9 @@ fn message_row<'a>(
     let has_media = image_url.is_some() || video_url.is_some();
 
     let mut bubble = column![].spacing(5);
+    let inset = if has_media { widgets::padding(2.0, 6.0, 2.0, 6.0) } else { widgets::padding(0.0, 0.0, 0.0, 0.0) };
     if chat.is_group() && !own && !joined_above {
-        bubble = bubble.push(strong(sender_name(main, chat, &message.sender_id), theme::TEXT_SM, theme::author_color(&message.sender_id)));
+        bubble = bubble.push(container(strong(sender_name(main, chat, &message.sender_id), theme::TEXT_SM, theme::author_color(&message.sender_id))).padding(inset));
     }
     if let Some(reply) = &message.reply_to_message {
         let who = if reply.sender_id == main.me.id { "You".to_owned() } else { sender_name(main, chat, &reply.sender_id) };
@@ -244,39 +245,60 @@ fn message_row<'a>(
         ]
         .spacing(8)
         .height(Length::Shrink);
-        bubble = bubble.push(button(container(quote).padding([5, 8]).style(theme::reply_quote(own)).max_width(max_bubble - 24.0)).padding(0).style(theme::bare_button).on_press(Message::JumpTo(reply.id.clone())));
+        bubble = bubble.push(
+            container(button(container(quote).padding([5, 8]).style(theme::reply_quote(own)).max_width(max_bubble - 24.0)).padding(0).style(theme::bare_button).on_press(Message::JumpTo(reply.id.clone())))
+                .padding(inset),
+        );
     }
 
-    let meta = meta_row(main, chat, message, own, meta_color);
-    if let Some(url) = &image_url {
-        bubble = bubble.push(image_preview(ctx, url, max_bubble.min(360.0)));
-    }
-    if let Some(url) = &video_url {
-        bubble = bubble.push(video_card(url, max_bubble.min(320.0)));
-    }
-    if message.is_call && !has_media {
-        bubble = bubble.push(row![call_card(message, own), meta].spacing(10).align_y(Alignment::End));
-    } else if !message.content.is_empty() {
+    let read_tint = if own { theme::rgb(0x3b, 0x63, 0xc4) } else { theme::ACCENT };
+    let media = image_url
+        .as_deref()
+        .map(|url| image_preview(ctx, url, max_bubble))
+        .or_else(|| video_url.as_deref().map(|url| video_card(url, max_bubble)));
+    if let Some((media, width, height)) = media {
+        // Web `.media-message`: 4 px frame; time on a dark pill over the media, or under the caption.
+        if message.content.is_empty() {
+            let pill = container(meta_row(main, chat, message, own, Color::WHITE, theme::ACCENT))
+                .padding([3, 8])
+                .style(theme::pill(Color::WHITE, theme::rgba(10, 10, 12, 0.55)));
+            bubble = bubble.push(stack![media, container(pill).align_right(width).align_bottom(height).padding(8)]);
+        } else {
+            bubble = bubble.push(
+                column![
+                    media,
+                    container(text(message.content.as_str()).size(theme::TEXT_MD).color(text_color).font(theme::REGULAR)).width(width).padding([4, 6]),
+                    container(meta_row(main, chat, message, own, meta_color, read_tint)).align_right(width).padding([0, 4]),
+                ]
+                .spacing(2),
+            );
+        }
+    } else if message.is_call {
+        bubble = bubble.push(row![call_card(message, own), meta_row(main, chat, message, own, meta_color, read_tint)].spacing(10).align_y(Alignment::End));
+    } else {
+        let meta = meta_row(main, chat, message, own, meta_color, read_tint);
         let body = text(message.content.as_str()).size(theme::TEXT_MD).color(text_color).font(theme::REGULAR);
         let short = message.content.chars().count() <= 38 && !message.content.contains('\n');
-        if short {
+        if message.content.is_empty() {
+            bubble = bubble.push(meta);
+        } else if short {
             bubble = bubble.push(row![body, meta].spacing(10).align_y(Alignment::End));
         } else {
-            bubble = bubble.push(column![body, container(meta).align_right(Length::Fill)].spacing(2));
+            // Shrink-wrapped: the bubble is as wide as the text, the time sits at its right edge.
+            bubble = bubble.push(column![body, meta].spacing(2).align_x(Alignment::End));
         }
-    } else {
-        bubble = bubble.push(container(meta).align_right(Length::Fill));
     }
 
-    let padding = if has_media { widgets::padding(6.0, 6.0, 6.0, 6.0) } else { widgets::padding(7.0, 12.0, 6.0, 12.0) };
-    let bubble = container(bubble).padding(padding).max_width(max_bubble).style(theme::bubble(own, joined_above, joined_below, highlighted));
+    let padding = if has_media { widgets::padding(4.0, 4.0, 4.0, 4.0) } else { widgets::padding(7.0, 12.0, 6.0, 12.0) };
+    let max_width = if has_media { max_bubble.min(476.0) } else { max_bubble };
+    let bubble = container(bubble).padding(padding).max_width(max_width).style(theme::bubble(own, joined_above, joined_below, highlighted));
     let interactive = mouse_area(bubble).on_right_press(Message::ShowContextMenu(message.clone())).on_double_click(Message::Reply(message.clone()));
     let aligned = if own { container(interactive).align_right(Length::Fill) } else { container(interactive).align_left(Length::Fill) };
     let spacing = if joined_above { 2.0 } else { 8.0 };
     container(aligned).id(message_id(&message.id)).padding(widgets::padding(spacing, 0.0, 0.0, 0.0)).width(Length::Fill).into()
 }
 
-fn meta_row<'a>(main: &'a Main, chat: &'a Chat, message: &'a ChatMessage, own: bool, color: Color) -> Element<'a, Message> {
+fn meta_row<'a>(main: &'a Main, chat: &'a Chat, message: &'a ChatMessage, own: bool, color: Color, read_tint: Color) -> Element<'a, Message> {
     let mut meta = row![].spacing(4).align_y(Alignment::Center);
     if message.pinned_at.is_some() {
         meta = meta.push(widgets::icon(Icon::Pin, 11.0, color));
@@ -288,7 +310,7 @@ fn meta_row<'a>(main: &'a Main, chat: &'a Chat, message: &'a ChatMessage, own: b
     if own {
         let read = chat.peer_last_read_at.is_some_and(|read_at| message.created_at <= read_at);
         let glyph = if read { Icon::CheckDouble } else { Icon::Check };
-        let tint = if read { theme::rgb(0x3b, 0x63, 0xc4) } else { color };
+        let tint = if read { read_tint } else { color };
         meta = meta.push(widgets::icon(glyph, 15.0, tint));
     }
     let _ = main;
@@ -305,61 +327,66 @@ fn sender_name(main: &Main, chat: &Chat, sender_id: &str) -> String {
         .unwrap_or_else(|| "Unknown".to_owned())
 }
 
-fn image_preview<'a>(ctx: Ctx<'a>, url: &str, max_width: f32) -> Element<'a, Message> {
+/// Web: images up to 468 px wide (82%), at most 480 px tall, at least 120 px wide.
+fn media_max_width(max_bubble: f32) -> f32 {
+    max_bubble.min(476.0) - 8.0
+}
+
+fn image_preview<'a>(ctx: Ctx<'a>, url: &str, max_bubble: f32) -> (Element<'a, Message>, f32, f32) {
     let key = Key::new(url, Size::Thumb);
     let open = Message::OpenImage(url.to_owned());
+    let max_width = media_max_width(max_bubble);
+    let radius = 14.0;
     match ctx.media.get(&key) {
         Some(image) => {
-            let aspect = image.height as f32 / image.width.max(1) as f32;
-            let width = max_width.min(image.width as f32).max(120.0);
-            let height = (width * aspect).min(420.0);
-            let width = if width * aspect > 420.0 { 420.0 / aspect } else { width };
-            button(iced::widget::image(image.handle.clone()).width(width).height(height).content_fit(iced::ContentFit::Cover).border_radius(13.0))
-                .padding(0)
-                .style(theme::bare_button)
-                .on_press(open)
-                .into()
+            let aspect = image.height.max(1) as f32 / image.width.max(1) as f32;
+            let mut width = (image.width as f32).clamp(120.0, max_width);
+            let mut height = width * aspect;
+            if height > 480.0 {
+                height = 480.0;
+                width = (height / aspect).clamp(120.0, max_width);
+            }
+            let picture = iced::widget::image(image.handle.clone()).width(width).height(height).content_fit(iced::ContentFit::Cover).border_radius(radius);
+            (button(picture).padding(0).style(theme::bare_button).on_press(open).into(), width, height)
         }
         None => {
+            let (width, height) = (max_width.min(300.0), 220.0);
             let failed = ctx.media.failed(&key);
             let placeholder = container(if failed { widgets::icon(Icon::Image, 26.0, theme::TEXT_3) } else { label("Loading photo…", theme::TEXT_XS, theme::TEXT_3).into() })
-                .width(max_width.min(280.0))
-                .height(200)
-                .center_x(max_width.min(280.0))
-                .center_y(200)
-                .style(|_| container::Style { background: Some(theme::black(0.18).into()), border: iced::Border { radius: 13.0.into(), ..Default::default() }, ..Default::default() });
-            if failed {
+                .center_x(width)
+                .center_y(height)
+                .style(move |_| container::Style { background: Some(theme::black(0.3).into()), border: iced::Border { radius: radius.into(), ..Default::default() }, ..Default::default() });
+            let element = if failed {
                 button(placeholder).padding(0).style(theme::bare_button).on_press(open).into()
             } else {
                 sensor(placeholder).on_show(move |_| Message::MediaVisible(key.clone())).into()
-            }
+            };
+            (element, width, height)
         }
     }
 }
 
-fn video_card<'a>(url: &str, width: f32) -> Element<'a, Message> {
+/// Web: black 16:9 frame up to 460 px wide; plays in the system player.
+fn video_card<'a>(url: &str, max_bubble: f32) -> (Element<'a, Message>, f32, f32) {
+    let width = media_max_width(max_bubble).min(460.0);
+    let height = (width * 9.0 / 16.0).round();
     let card = container(
-        column![
-            container(widgets::icon(Icon::Play, 22.0, theme::TEXT_1)).center(52).style(|_| container::Style {
-                background: Some(theme::black(0.45).into()),
-                border: iced::Border { color: theme::white(0.25), width: 1.0, radius: 999.0.into() },
-                ..Default::default()
-            }),
-            label("Video · opens in your player", theme::TEXT_XS, theme::TEXT_2),
-        ]
-        .spacing(10)
-        .align_x(Alignment::Center),
+        container(widgets::icon(Icon::Play, 24.0, Color::WHITE)).center(56).style(|_| container::Style {
+            background: Some(theme::rgba(10, 10, 12, 0.55).into()),
+            border: iced::Border { color: theme::white(0.3), width: 1.0, radius: 999.0.into() },
+            ..Default::default()
+        }),
     )
     .center_x(width)
-    .center_y(180)
-    .width(width)
-    .height(180)
-    .style(|_| container::Style {
-        background: Some(theme::rgb(0x10, 0x11, 0x13).into()),
-        border: iced::Border { radius: 13.0.into(), ..Default::default() },
-        ..Default::default()
-    });
-    button(card).padding(0).style(theme::bare_button).on_press(Message::OpenVideo(url.to_owned())).into()
+    .center_y(height)
+    .style(|_| container::Style { background: Some(Color::BLACK.into()), border: iced::Border { radius: 14.0.into(), ..Default::default() }, ..Default::default() });
+    let element = iced::widget::tooltip(
+        button(card).padding(0).style(theme::bare_button).on_press(Message::OpenVideo(url.to_owned())),
+        container(label("Play in your video player", theme::TEXT_XS, theme::TEXT_1)).padding([5, 9]).style(theme::menu),
+        iced::widget::tooltip::Position::FollowCursor,
+    )
+    .into();
+    (element, width, height)
 }
 
 fn call_card<'a>(message: &'a ChatMessage, own: bool) -> Element<'a, Message> {

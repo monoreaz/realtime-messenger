@@ -30,10 +30,10 @@ pub fn rail<'a>(main: &'a Main, ctx: Ctx<'a>) -> Element<'a, Message> {
         .align_bottom(36),
     ])
     .padding(3)
-    .style(theme::icon_button)
+    .style(|theme, status| iced::widget::button::Style { border: iced::Border { radius: 999.0.into(), ..Default::default() }, ..theme::icon_button(theme, status) })
     .on_press(Message::OpenDialog(Open::Settings));
 
-    let mut top = column![super::auth::brand_mark(38.0), widgets::gap(14.0), tip(widgets::rail_button(Icon::Plus, Message::OpenDialog(Open::CreateGroup)), "New group")].spacing(6).align_x(Alignment::Center);
+    let mut top = column![super::auth::brand_mark(40.0), widgets::gap(20.0), tip(widgets::rail_button(Icon::Plus, Message::OpenDialog(Open::CreateGroup)), "New group")].spacing(6).align_x(Alignment::Center);
     if main.me.is_admin {
         top = top.push(tip(widgets::rail_button(Icon::Shield, Message::OpenDialog(Open::Admin)), "Admin panel"));
     }
@@ -45,7 +45,8 @@ pub fn rail<'a>(main: &'a Main, ctx: Ctx<'a>) -> Element<'a, Message> {
     .spacing(6)
     .align_x(Alignment::Center);
 
-    container(column![top, widgets::vspace(), bottom].align_x(Alignment::Center))
+    // The column must span the rail, otherwise its centred children hug the left edge.
+    container(column![top, widgets::vspace(), bottom].width(Length::Fill).align_x(Alignment::Center))
         .width(theme::RAIL_WIDTH)
         .height(Length::Fill)
         .padding([18, 0])
