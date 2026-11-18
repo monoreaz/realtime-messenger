@@ -183,7 +183,7 @@ pub fn backdrop(_: &Theme) -> container::Style {
     container::Style { background: Some(rgba(6, 6, 8, 0.62).into()), ..container::Style::default() }
 }
 
-pub fn bubble(own: bool, top_join: bool, bottom_join: bool, highlighted: bool) -> impl Fn(&Theme) -> container::Style {
+pub fn bubble(own: bool, top_join: bool, bottom_join: bool, glow: f32) -> impl Fn(&Theme) -> container::Style {
     move |_| {
         let big = 18.0;
         let small = 6.0;
@@ -207,11 +207,15 @@ pub fn bubble(own: bool, top_join: bool, bottom_join: bool, highlighted: bool) -
             background: Some(background.into()),
             text_color: Some(text),
             border: Border {
-                color: if highlighted { ACCENT } else { border },
-                width: if highlighted { 2.0 } else { 1.0 },
+                color: if glow > 0.0 { mix(border, ACCENT, glow) } else { border },
+                width: 1.0 + glow,
                 radius,
             },
-            shadow: shadow(black(if own { 0.18 } else { 0.12 }), 1.0, 1.0),
+            shadow: if glow > 0.0 {
+                Shadow { color: Color { a: 0.45 * glow, ..ACCENT }, offset: Vector::new(0.0, 0.0), blur_radius: 18.0 * glow }
+            } else {
+                shadow(black(if own { 0.18 } else { 0.12 }), 1.0, 1.0)
+            },
             ..container::Style::default()
         }
     }
@@ -377,6 +381,51 @@ pub fn danger_text_button(_: &Theme, status: button::Status) -> button::Style {
         _ => None,
     };
     base_button(background, DANGER, 10.0)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tile {
+    /// Accent action (new group).
+    Primary,
+    Normal,
+    /// Destructive (log out): turns red on hover.
+    Danger,
+}
+
+impl Tile {
+    /// Glyph colour for the tile at rest / hovered.
+    pub fn glyph(self, hovered: bool) -> Color {
+        match (self, hovered) {
+            (Tile::Primary, false) => ACCENT,
+            (Tile::Primary, true) => rgb(0xd6, 0xe2, 0xff),
+            (Tile::Danger, true) => DANGER,
+            (_, false) => TEXT_2,
+            (_, true) => TEXT_1,
+        }
+    }
+}
+
+/// Rail buttons: soft glass tiles with a hairline border and a gentle lift on hover.
+pub fn rail_tile(tile: Tile, hovered: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let hovered = hovered || matches!(status, button::Status::Hovered);
+        let pressed = matches!(status, button::Status::Pressed);
+        let (background, border) = match (tile, hovered || pressed) {
+            (Tile::Primary, false) => (rgba(182, 204, 255, 0.10), rgba(182, 204, 255, 0.22)),
+            (Tile::Primary, true) => (rgba(182, 204, 255, 0.20), rgba(182, 204, 255, 0.42)),
+            (Tile::Danger, true) => (DANGER_SOFT, rgba(255, 149, 146, 0.30)),
+            (_, false) => (white(0.035), white(0.06)),
+            (_, true) => (white(0.10), white(0.16)),
+        };
+        let lift = if hovered && !pressed { shadow(black(0.35), 4.0, 12.0) } else { Shadow::default() };
+        button::Style {
+            background: Some(if pressed { mix(background, white(0.2), 0.3) } else { background }.into()),
+            text_color: tile.glyph(hovered),
+            border: Border { color: border, width: 1.0, radius: RADIUS_MD.into() },
+            shadow: lift,
+            snap: true,
+        }
+    }
 }
 
 /// Transparent icon button (rail, header, composer).
@@ -550,6 +599,11 @@ pub fn scroll(_: &Theme, status: scrollable::Status) -> scrollable::Style {
             icon: TEXT_2,
         },
     }
+}
+
+/// Linear blend between two colours.
+pub fn mix(a: Color, b: Color, t: f32) -> Color {
+    Color { r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t, a: a.a + (b.a - a.a) * t }
 }
 
 // ----------------------------------------------------------------------------

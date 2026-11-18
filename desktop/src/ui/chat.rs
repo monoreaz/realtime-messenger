@@ -1,7 +1,6 @@
 //! Conversation panel: header, pinned bar, message list and composer.
 
 use chrono::Utc;
-use iced::advanced::widget::operation::scrollable::AbsoluteOffset;
 use iced::advanced::widget::operation::{Operation, Outcome, Scrollable};
 use iced::widget::{Id, Space, button, column, container, mouse_area, row, scrollable, sensor, stack, text, text_input};
 use iced::{Alignment, Color, Element, Length, Point, Rectangle, Task, Vector};
@@ -17,6 +16,8 @@ use crate::format;
 use crate::media::{Key, Size};
 
 const RUN_GAP_SECONDS: i64 = 5 * 60;
+/// How long a jumped-to message glows.
+pub const HIGHLIGHT: std::time::Duration = std::time::Duration::from_millis(1800);
 
 fn message_id(id: &str) -> Id {
     Id::from(format!("msg-{id}"))
@@ -169,7 +170,11 @@ fn messages<'a>(app: &'a App, main: &'a Main, chat: &'a Chat, thread: Option<&'a
 
     let max_bubble = (width * 0.76).clamp(220.0, 620.0);
     let now = Utc::now();
-    let highlight = main.highlight.as_ref().map(|(id, _)| id.as_str());
+    // Glow that fades out (ease-out) after jumping to a message.
+    let highlight = main.highlight.as_ref().map(|(id, at)| {
+        let progress = (at.elapsed().as_secs_f32() / HIGHLIGHT.as_secs_f32()).min(1.0);
+        (id.as_str(), 1.0 - progress * progress)
+    });
     let mut items = Vec::with_capacity(visible.len() * 2 + 1);
     if thread.loading_older || thread.hidden_older() > 0 || thread.has_older {
         let note = if thread.loading_older { "Loading earlier messages…" } else { "" };
@@ -189,7 +194,7 @@ fn messages<'a>(app: &'a App, main: &'a Main, chat: &'a Chat, thread: Option<&'a
         }
         let joined_above = !new_day && previous.is_some_and(|previous| same_run(previous, message));
         let joined_below = next.is_some_and(|next| same_run(message, next) && format::same_day(message.created_at, next.created_at));
-        let highlighted = highlight == Some(message.id.as_str());
+        let highlighted = highlight.filter(|(id, _)| *id == message.id).map_or(0.0, |(_, glow)| glow);
         items.push(message_row(app, main, chat, message, ctx, max_bubble, joined_above, joined_below, highlighted));
     }
 
@@ -197,6 +202,7 @@ fn messages<'a>(app: &'a App, main: &'a Main, chat: &'a Chat, thread: Option<&'a
     // which corrupts state when a chat's message list is replaced.
     let list = column(items).padding(widgets::padding(12.0, (width * 0.04).clamp(12.0, 56.0), 12.0, (width * 0.04).clamp(12.0, 56.0)));
     let scroll = scrollable(list).id(messages_scroll()).anchor_bottom().on_scroll(Message::Scrolled).height(Length::Fill).width(Length::Fill).style(theme::scroll);
+    let scroll = super::smooth::wheel(scroll, Message::WheelMessages);
 
     let mut layers = stack![scroll].width(Length::Fill).height(Length::Fill);
     if !main.at_bottom {
@@ -220,7 +226,7 @@ fn message_row<'a>(
     max_bubble: f32,
     joined_above: bool,
     joined_below: bool,
-    highlighted: bool,
+    highlighted: f32,
 ) -> Element<'a, Message> {
     let own = message.sender_id == main.me.id;
     let (text_color, meta_color) = if own { (theme::BUBBLE_OUT_TEXT, theme::BUBBLE_OUT_TEXT_2) } else { (theme::TEXT_1, theme::TEXT_3) };
@@ -537,7 +543,9 @@ pub fn context_menu<'a>(main: &'a Main, menu: &'a ContextMenu, window: iced::Siz
 }
 
 /// Scrolls the message list so the given message is centred.
-pub fn scroll_to_message<T: Send + 'static>(message_id_value: String) -> Task<T> {
+/// Measures where the given message is and returns the bottom-anchored offset that
+/// centres it, plus the maximum offset; the app animates the scroll there.
+pub fn scroll_to_message(message_id_value: String) -> Task<(f32, f32)> {
     struct Find {
         target: Id,
         scroll: Id,
@@ -545,8 +553,8 @@ pub fn scroll_to_message<T: Send + 'static>(message_id_value: String) -> Task<T>
         found: Option<Rectangle>,
     }
 
-    impl Operation<()> for Find {
-        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<()>)) {
+    impl Operation<(f32, f32)> for Find {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<(f32, f32)>)) {
             operate(self);
         }
 
@@ -562,19 +570,18 @@ pub fn scroll_to_message<T: Send + 'static>(message_id_value: String) -> Task<T>
             }
         }
 
-        fn finish(&self) -> Outcome<()> {
+        fn finish(&self) -> Outcome<(f32, f32)> {
             let (Some((viewport, content)), Some(target)) = (self.viewport, self.found) else { return Outcome::None };
             let max = (content.height - viewport.height).max(0.0);
             let relative = target.y - content.y;
             let translation = (relative - (viewport.height - target.height).max(0.0) / 2.0).clamp(0.0, max);
             // The list is anchored to the bottom, so offsets count from the end.
-            let offset = AbsoluteOffset { x: None, y: Some(max - translation) };
-            Outcome::Chain(Box::new(iced::advanced::widget::operation::scrollable::scroll_to(self.scroll.clone(), offset)))
+            Outcome::Some((max - translation, max))
         }
     }
 
     let find = Find { target: message_id(&message_id_value), scroll: messages_scroll(), viewport: None, found: None };
-    iced::advanced::widget::operate(find).discard()
+    iced::advanced::widget::operate(find)
 }
 
 #[allow(dead_code)]

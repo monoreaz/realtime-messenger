@@ -33,16 +33,26 @@ pub fn rail<'a>(main: &'a Main, ctx: Ctx<'a>) -> Element<'a, Message> {
     .style(|theme, status| iced::widget::button::Style { border: iced::Border { radius: 999.0.into(), ..Default::default() }, ..theme::icon_button(theme, status) })
     .on_press(Message::OpenDialog(Open::Settings));
 
-    let mut top = column![super::auth::brand_mark(40.0), widgets::gap(20.0), tip(widgets::rail_button(Icon::Plus, Message::OpenDialog(Open::CreateGroup)), "New group")].spacing(6).align_x(Alignment::Center);
+    let separator = container(Space::new()).width(24).height(1).style(theme::divider);
+    let mut top = column![
+        super::auth::brand_mark(40.0),
+        widgets::gap(10.0),
+        separator,
+        widgets::gap(10.0),
+        tip(widgets::rail_button(Icon::Plus, Message::OpenDialog(Open::CreateGroup), theme::Tile::Primary), "New group"),
+    ]
+    .spacing(8)
+    .align_x(Alignment::Center);
     if main.me.is_admin {
-        top = top.push(tip(widgets::rail_button(Icon::Shield, Message::OpenDialog(Open::Admin)), "Admin panel"));
+        top = top.push(tip(widgets::rail_button(Icon::Shield, Message::OpenDialog(Open::Admin), theme::Tile::Normal), "Admin panel"));
     }
     let bottom = column![
-        tip(widgets::rail_button(Icon::Settings, Message::OpenDialog(Open::Settings)), "Settings"),
-        tip(widgets::rail_button(Icon::Logout, Message::Logout), "Log out"),
+        tip(widgets::rail_button(Icon::Settings, Message::OpenDialog(Open::Settings), theme::Tile::Normal), "Settings"),
+        tip(widgets::rail_button(Icon::Logout, Message::Logout, theme::Tile::Danger), "Log out"),
+        widgets::gap(2.0),
         tip(profile.into(), "Profile"),
     ]
-    .spacing(6)
+    .spacing(8)
     .align_x(Alignment::Center);
 
     // The column must span the rail, otherwise its centred children hug the left edge.
@@ -192,12 +202,24 @@ pub fn view<'a>(app: &'a App, main: &'a Main, ctx: Ctx<'a>, width: f32) -> Eleme
     let mut content = column![
         container(header).padding(widgets::padding(18.0, 18.0, 12.0, 18.0)),
         container(search).padding([0, 14]),
-        container(scrollable(container(list).padding(widgets::padding(10.0, 10.0, 12.0, 10.0))).height(Length::Fill).style(theme::scroll)).height(Length::Fill),
+        container(super::smooth::wheel(
+            scrollable(container(list).padding(widgets::padding(10.0, 10.0, 12.0, 10.0)))
+                .id(chat_list_scroll())
+                .on_scroll(Message::ListScrolled)
+                .height(Length::Fill)
+                .style(theme::scroll),
+            Message::WheelList,
+        ))
+        .height(Length::Fill),
     ];
     if let Some(banner) = crate::update::banner(&app.updater) {
         content = content.push(container(banner).padding(widgets::padding(0.0, 12.0, 12.0, 12.0)));
     }
     container(content).width(width).height(Length::Fill).style(theme::sidebar).into()
+}
+
+pub fn chat_list_scroll() -> iced::widget::Id {
+    iced::widget::Id::from("chat-list")
 }
 
 fn list_label<'a>(name: &'a str) -> Element<'a, Message> {

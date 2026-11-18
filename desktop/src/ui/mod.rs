@@ -7,6 +7,7 @@ pub mod chat;
 pub mod icons;
 pub mod settings;
 pub mod sidebar;
+pub mod smooth;
 pub mod theme;
 pub mod widgets;
 

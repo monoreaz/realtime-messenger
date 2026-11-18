@@ -27,6 +27,11 @@ xdotool search --sync --name "^Messenger" windowfocus 2>/dev/null || true
 shot 01-chat-list 1
 # Own media messages at the bottom of the first chat.
 click 220 150; repaint; shot 00-own-media 2.5
+# Smooth wheel scrolling: three notches up, captured after the animation settled.
+xdotool mousemove 800 400; for i in 1 2 3; do xdotool click 4; sleep 0.05; done; sleep 0.8; repaint; shot 00-wheel 0.5
+# Hovered "New group" tile.
+xdotool mousemove 34 101; sleep 0.6; repaint; xdotool mousemove 34 101; shot 00-rail-hover 0.6
+convert /src/shots/00-rail-hover.png -crop 70x800+0+0 -scale 300% /src/shots/rail-zoom.png
 # Open the first chat in the list (rail 68px + sidebar; first item ≈ y 140).
 click 220 150; shot 02-conversation 2.5
 # Right-click the newest message bubble (bottom right of the conversation).

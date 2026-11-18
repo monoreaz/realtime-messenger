@@ -109,6 +109,8 @@ pub struct Main {
     pub at_bottom: bool,
     pub viewport_height: f32,
     pub highlight: Option<(String, Instant)>,
+    pub msg_scroll: crate::ui::smooth::Smooth,
+    pub list_scroll: crate::ui::smooth::Smooth,
     pub pin_cursor: usize,
     pub pending_jump: Option<String>,
     pub call: Option<crate::call::ActiveCall>,
@@ -232,6 +234,11 @@ pub enum Message {
     MessagesLoaded { chat_id: String, before: Option<String>, result: Result<Vec<ChatMessage>, ApiError> },
     PinsLoaded { chat_id: String, result: Result<Vec<ChatMessage>, ApiError> },
     Scrolled(scrollable::Viewport),
+    ListScrolled(scrollable::Viewport),
+    WheelMessages(f32),
+    WheelList(f32),
+    Frame(Instant),
+    JumpOffset(f32, f32),
     ScrollToLatest,
     MarkedRead(Result<(), ApiError>),
     JumpTo(String),
@@ -362,14 +369,18 @@ impl App {
                 ws::subscription(ws::Config { client: self.client.clone(), generation: main.ws_generation }).map(Message::Ws),
             );
             // A coarse tick only while something time-based is pending keeps idle CPU at zero.
+            // Per-frame updates only while something is animating.
+            let highlight_fading = main.highlight.as_ref().is_some_and(|(_, at)| at.elapsed() < crate::ui::chat::HIGHLIGHT);
+            if main.msg_scroll.is_animating() || main.list_scroll.is_animating() || highlight_fading || main.highlight.is_some() {
+                subscriptions.push(window::frames().map(Message::Frame));
+            }
             if let Some(call) = &main.call {
                 subscriptions.push(call.subscription().map(|(id, update)| Message::CallUpdate(id, update)));
             }
             let needs_tick = main.call.as_ref().is_some_and(|call| call.started_at.is_some())
                 || !main.typing.is_empty()
                 || main.typing_sent.is_some()
-                || main.toast.is_some()
-                || main.highlight.is_some();
+                || main.toast.is_some();
             if needs_tick {
                 subscriptions.push(iced::time::every(Duration::from_millis(500)).map(|_| Message::Tick));
             }
@@ -514,6 +525,8 @@ impl App {
             at_bottom: true,
             viewport_height: 600.0,
             highlight: None,
+            msg_scroll: Default::default(),
+            list_scroll: Default::default(),
             pin_cursor: 0,
             pending_jump: None,
             call: None,
@@ -639,9 +652,6 @@ impl App {
         if main.toast.as_ref().is_some_and(|toast| toast.until <= now) {
             main.toast = None;
         }
-        if main.highlight.as_ref().is_some_and(|(_, at)| now.duration_since(*at) > Duration::from_secs(2)) {
-            main.highlight = None;
-        }
         if let Some((chat_id, _)) = &main.typing_sent
             && main.last_input.is_none_or(|at| now.duration_since(at) > TYPING_IDLE_STOP)
         {
@@ -764,7 +774,31 @@ impl App {
                     main.pin_cursor = 0;
                 }
             }
+            Message::ListScrolled(viewport) => main.list_scroll.observe(&viewport),
+            Message::WheelMessages(notches) => {
+                // Bottom-anchored: scrolling up moves away from the newest message.
+                main.msg_scroll.wheel(notches, true);
+            }
+            Message::WheelList(notches) => main.list_scroll.wheel(notches, false),
+            Message::JumpOffset(offset, max) => {
+                main.msg_scroll.max = main.msg_scroll.max.max(max);
+                main.msg_scroll.animate_to(offset);
+            }
+            Message::Frame(now) => {
+                if main.highlight.as_ref().is_some_and(|(_, at)| at.elapsed() >= crate::ui::chat::HIGHLIGHT) {
+                    main.highlight = None;
+                }
+                let mut tasks = Vec::new();
+                if let Some(offset) = main.msg_scroll.step(now) {
+                    tasks.push(operation::scroll_to(messages_scroll(), offset));
+                }
+                if let Some(offset) = main.list_scroll.step(now) {
+                    tasks.push(operation::scroll_to(crate::ui::sidebar::chat_list_scroll(), offset));
+                }
+                return Task::batch(tasks);
+            }
             Message::Scrolled(viewport) => {
+                main.msg_scroll.observe(&viewport);
                 let offset = viewport.absolute_offset().y; // distance from the bottom (anchored)
                 let content = viewport.content_bounds().height;
                 let height = viewport.bounds().height;
@@ -790,7 +824,8 @@ impl App {
                     thread.window = RENDER_WINDOW;
                 }
                 main.at_bottom = true;
-                return Task::batch([scroll_to_bottom(), self.mark_active_read()]);
+                main.msg_scroll.animate_to(0.0);
+                return self.mark_active_read();
             }
             Message::MarkedRead(result) => {
                 if let Err(error) = result {
@@ -1177,6 +1212,7 @@ impl App {
         main.active = Some(chat_id.clone());
         main.context_menu = None;
         main.at_bottom = true;
+        main.msg_scroll.reset();
         main.pin_cursor = 0;
         main.pending_jump = None;
         main.composer.text = main.composer.drafts.remove(&chat_id).unwrap_or_default();
@@ -1256,7 +1292,7 @@ impl App {
                     thread.window = needed;
                 }
                 main.highlight = Some((message_id.clone(), Instant::now()));
-                ui::chat::scroll_to_message(message_id)
+                ui::chat::scroll_to_message(message_id).map(|(offset, max)| Message::JumpOffset(offset, max))
             }
             None if thread.has_older && thread.loaded => {
                 main.pending_jump = Some(message_id);
