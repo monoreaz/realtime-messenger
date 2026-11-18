@@ -148,6 +148,9 @@ Legend: ✅ implemented (compiles; logic unit-tested where noted) · 🔶 partia
   groups + permissions, sessions, admin block → account.blocked, logout.
 - Headless UI run (Xvfb, tiny-skia; `scripts/shoot.sh`): chat list, conversation, context menu,
   settings, group info, image viewer, new group, narrow layout ✅ (screenshots reviewed).
+- Performance probe (`scripts/perf.sh`, release build, Linux Xvfb + CPU renderer = pessimistic):
+  RSS 33 MB, 5 threads, idle CPU 0.00% (chat list or chat without focused input); ~5% of one core
+  while the composer has focus (caret blink repaints on the CPU renderer). Release binary 31 MB.
 - Windows CI (GitHub Actions windows-latest): ✅ tests, clippy, release build, installer (run 44370733605).
 - Call engine: loopback test ✅; browser interop ✅ (`scripts/it-stack.sh up && scripts/it-stack.sh web`,
   then run `call_interop` with MESSENGER_IT_CALL=1 together with `scripts/call-interop.mjs` in the
