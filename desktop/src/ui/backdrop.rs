@@ -13,28 +13,18 @@ use iced::{Point, Rectangle, Size};
 use image::imageops::{self, FilterType};
 use image::{GenericImageView, RgbImage};
 
-/// Web `.messenger`: wider than 1100 px the app is a floating glass window inset from the
-/// viewport; narrower, it fills the viewport edge to edge.
+/// Where the app sits in the OS window.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Frame {
     pub rect: Rectangle,
     pub radius: f32,
 }
 
-pub const RADIUS_WINDOW: f32 = 26.0;
-
 impl Frame {
+    /// The app fills the whole OS window (the web's edge-to-edge layout); the floating
+    /// inset window is not used on the desktop.
     pub fn for_window(size: Size) -> Self {
-        if size.width > 1100.0 {
-            let gap = (size.width * 0.022).clamp(12.0, 32.0).round();
-            let width = (size.width - 2.0 * gap).min(1720.0).round();
-            Frame {
-                rect: Rectangle::new(Point::new(((size.width - width) / 2.0).round(), gap), Size::new(width, (size.height - 2.0 * gap).round().max(0.0))),
-                radius: RADIUS_WINDOW,
-            }
-        } else {
-            Frame { rect: Rectangle::new(Point::ORIGIN, size), radius: 0.0 }
-        }
+        Frame { rect: Rectangle::new(Point::ORIGIN, size), radius: 0.0 }
     }
 
     pub fn padding(&self, window: Size) -> iced::Padding {
@@ -164,14 +154,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frame_matches_web_breakpoints() {
-        let wide = Frame::for_window(Size::new(1280.0, 800.0));
-        // --window-gap: clamp(12px, 2.2vw, 32px) → 28px at 1280.
-        assert_eq!(wide.rect, Rectangle::new(Point::new(28.0, 28.0), Size::new(1224.0, 744.0)));
-        assert_eq!(wide.radius, RADIUS_WINDOW);
-        let full = Frame::for_window(Size::new(1000.0, 700.0));
-        assert_eq!(full.rect, Rectangle::new(Point::ORIGIN, Size::new(1000.0, 700.0)));
-        assert_eq!(full.radius, 0.0);
+    fn frame_fills_the_window() {
+        for size in [Size::new(1280.0, 800.0), Size::new(1000.0, 700.0)] {
+            let frame = Frame::for_window(size);
+            assert_eq!(frame.rect, Rectangle::new(Point::ORIGIN, size));
+            assert_eq!(frame.radius, 0.0);
+        }
     }
 
     #[test]

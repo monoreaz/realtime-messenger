@@ -47,15 +47,15 @@ pub fn icon_button<'a>(glyph: Icon, on_press: Option<Message>, tooltip_size: f32
 }
 
 /// Icon button whose glyph follows the button's text colour (hover brightens it).
-pub fn rail_button<'a>(glyph: Icon, on_press: Message, tile: theme::Tile) -> Element<'a, Message> {
-    // `hover` swaps in the hovered variant while the pointer is anywhere on the tile, so the
-    // glyph colour follows the whole button (svg cannot inherit the button's text colour).
+pub fn rail_button<'a>(glyph: Icon, on_press: Message) -> Element<'a, Message> {
+    // Web `.rail-button`: a bare icon; hover fills a soft square and brightens the glyph.
+    // `hover` swaps in the hovered variant (svg cannot inherit the button's text colour).
     let make = |hovered: bool, on_press: Message| -> Element<'a, Message> {
-        button(container(icon(glyph, 20.0, tile.glyph(hovered))).center(44))
+        button(container(icon(glyph, 18.0, if hovered { theme::TEXT_1 } else { theme::TEXT_3 })).center(42))
             .padding(0)
-            .width(44)
-            .height(44)
-            .style(theme::rail_tile(tile, hovered))
+            .width(42)
+            .height(42)
+            .style(theme::icon_button)
             .on_press(on_press)
             .into()
     };

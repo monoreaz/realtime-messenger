@@ -35,17 +35,17 @@ pub fn rail<'a>(main: &'a Main, ctx: Ctx<'a>, corner: f32) -> Element<'a, Messag
 
     let mut top = column![
         super::auth::brand_mark(40.0),
-        widgets::gap(18.0),
-        tip(widgets::rail_button(Icon::Plus, Message::OpenDialog(Open::CreateGroup), theme::Tile::Primary), "New group"),
+        widgets::gap(14.0),
+        tip(widgets::rail_button(Icon::Plus, Message::OpenDialog(Open::CreateGroup)), "New group"),
     ]
     .spacing(6)
     .align_x(Alignment::Center);
     if main.me.is_admin {
-        top = top.push(tip(widgets::rail_button(Icon::Shield, Message::OpenDialog(Open::Admin), theme::Tile::Normal), "Admin panel"));
+        top = top.push(tip(widgets::rail_button(Icon::Shield, Message::OpenDialog(Open::Admin)), "Admin panel"));
     }
     let bottom = column![
-        tip(widgets::rail_button(Icon::Settings, Message::OpenDialog(Open::Settings), theme::Tile::Normal), "Settings"),
-        tip(widgets::rail_button(Icon::Logout, Message::Logout, theme::Tile::Danger), "Log out"),
+        tip(widgets::rail_button(Icon::Settings, Message::OpenDialog(Open::Settings)), "Settings"),
+        tip(widgets::rail_button(Icon::Logout, Message::Logout), "Log out"),
         widgets::gap(2.0),
         tip(profile.into(), "Profile"),
     ]

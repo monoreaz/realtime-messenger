@@ -402,51 +402,6 @@ pub fn danger_text_button(_: &Theme, status: button::Status) -> button::Style {
     base_button(background, DANGER, 10.0)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tile {
-    /// Accent action (new group).
-    Primary,
-    Normal,
-    /// Destructive (log out): turns red on hover.
-    Danger,
-}
-
-impl Tile {
-    /// Glyph colour for the tile at rest / hovered.
-    pub fn glyph(self, hovered: bool) -> Color {
-        match (self, hovered) {
-            (Tile::Primary, false) => ACCENT,
-            (Tile::Primary, true) => rgb(0xd6, 0xe2, 0xff),
-            (Tile::Danger, true) => DANGER,
-            (_, false) => TEXT_2,
-            (_, true) => TEXT_1,
-        }
-    }
-}
-
-/// Rail buttons: soft glass tiles with a hairline border and a gentle lift on hover.
-pub fn rail_tile(tile: Tile, hovered: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
-    move |_, status| {
-        let hovered = hovered || matches!(status, button::Status::Hovered);
-        let pressed = matches!(status, button::Status::Pressed);
-        let (background, border) = match (tile, hovered || pressed) {
-            (Tile::Primary, false) => (rgba(182, 204, 255, 0.10), rgba(182, 204, 255, 0.22)),
-            (Tile::Primary, true) => (rgba(182, 204, 255, 0.20), rgba(182, 204, 255, 0.42)),
-            (Tile::Danger, true) => (DANGER_SOFT, rgba(255, 149, 146, 0.30)),
-            (_, false) => (white(0.035), white(0.06)),
-            (_, true) => (white(0.10), white(0.16)),
-        };
-        let lift = if hovered && !pressed { shadow(black(0.35), 4.0, 12.0) } else { Shadow::default() };
-        button::Style {
-            background: Some(if pressed { mix(background, white(0.2), 0.3) } else { background }.into()),
-            text_color: tile.glyph(hovered),
-            border: Border { color: border, width: 1.0, radius: RADIUS_MD.into() },
-            shadow: lift,
-            snap: true,
-        }
-    }
-}
-
 /// Transparent icon button (rail, header, composer).
 pub fn icon_button(_: &Theme, status: button::Status) -> button::Style {
     let (background, text) = match status {
