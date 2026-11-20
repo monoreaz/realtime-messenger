@@ -22,8 +22,14 @@ from app.models.chat import ChatMember
 from app.models.user import User
 from app.realtime.manager import manager
 from app.schemas.user import (
+    PrivacySettings,
+    PrivacyUpdate,
     UserResponse,
     UserUpdate,
+)
+from app.services.presence import (
+    announce_last_seen,
+    presence_snapshot,
 )
 
 
@@ -168,6 +174,57 @@ async def update_me(
     )
 
     return current_user
+
+
+@router.get(
+    "/me/privacy",
+    response_model=PrivacySettings,
+)
+async def get_privacy(
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+):
+    return PrivacySettings(
+        last_seen=current_user.last_seen_visibility,
+    )
+
+
+@router.patch(
+    "/me/privacy",
+    response_model=PrivacySettings,
+)
+async def update_privacy(
+    settings: PrivacyUpdate,
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: AsyncSession = Depends(get_db),
+):
+    if (
+        settings.last_seen is not None
+        and settings.last_seen != current_user.last_seen_visibility
+    ):
+        current_user.last_seen_visibility = settings.last_seen
+        await db.commit()
+
+        # Peers lose or regain this user's last seen, and because the rule
+        # is mutual, this user's own view of their peers changes too.
+        await announce_last_seen(
+            db,
+            current_user.id,
+            "presence.last_seen",
+        )
+        await manager.send_to_user(
+            current_user.id,
+            await presence_snapshot(db, current_user.id),
+        )
+
+    return PrivacySettings(
+        last_seen=current_user.last_seen_visibility,
+    )
 
 
 @router.post(

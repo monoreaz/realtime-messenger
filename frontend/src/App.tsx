@@ -34,6 +34,8 @@ import {
     pinMessage,
     unpinMessage,
     sendVideoMessage,
+    getPrivacySettings,
+    updatePrivacySettings,
     type SessionInfo,
     type Chat,
     type Message,
@@ -53,6 +55,8 @@ import { AudioCallDialog } from "./AudioCallDialog";
 import { PinnedMessagesDialog } from "./PinnedMessagesDialog";
 import { selectPinnedMessage } from "./pinnedMessages";
 import { useAudioCall } from "./useAudioCall";
+import { withLastSeen, type LastSeenVisibility } from "./lastSeen";
+import { LastSeenText } from "./LastSeenText";
 
 
 type AuthMode = "login" | "register" | "forgot" | "reset" | "resend";
@@ -301,6 +305,14 @@ function App() {
         () => new Set(),
     );
 
+    // Peers' last-seen times, only for those whose privacy settings allow it.
+    const [lastSeenByUserId, setLastSeenByUserId] = useState<Map<string, string>>(
+        () => new Map(),
+    );
+
+    const [lastSeenVisibility, setLastSeenVisibility] = useState<LastSeenVisibility | null>(null);
+    const [privacySaving, setPrivacySaving] = useState(false);
+
     const [profileOpen, setProfileOpen] = useState(false);
     const [adminPanelOpen, setAdminPanelOpen] = useState(false);
     const [groupDialogOpen, setGroupDialogOpen] = useState(false);
@@ -489,6 +501,51 @@ function App() {
 
         if (tab === "sessions") {
             void loadSessions();
+        }
+
+        if (tab === "privacy") {
+            void loadPrivacySettings();
+        }
+    }
+
+    async function loadPrivacySettings() {
+        if (!token) {
+            return;
+        }
+
+        try {
+            const settings = await getPrivacySettings(token);
+            setLastSeenVisibility(settings.last_seen);
+        } catch (caughtError) {
+            if (caughtError instanceof Error) {
+                setError(caughtError.message);
+            }
+        }
+    }
+
+    async function handleLastSeenVisibilityChange(value: LastSeenVisibility) {
+        if (!token || value === lastSeenVisibility || privacySaving) {
+            return;
+        }
+
+        const previous = lastSeenVisibility;
+        setLastSeenVisibility(value);
+        setPrivacySaving(true);
+        setError("");
+        setProfileMessage("");
+
+        try {
+            const settings = await updatePrivacySettings(token, { last_seen: value });
+            setLastSeenVisibility(settings.last_seen);
+            setProfileMessage("Privacy settings saved");
+        } catch (caughtError) {
+            setLastSeenVisibility(previous);
+
+            if (caughtError instanceof Error) {
+                setError(caughtError.message);
+            }
+        } finally {
+            setPrivacySaving(false);
         }
     }
 
@@ -1196,6 +1253,14 @@ function App() {
                 setOnlineUserIds(
                     new Set(data.online_user_ids as string[]),
                 );
+                setLastSeenByUserId(
+                    new Map(Object.entries((data.last_seen ?? {}) as Record<string, string>)),
+                );
+                return;
+            }
+
+            if (data.type === "presence.last_seen") {
+                setLastSeenByUserId((current) => withLastSeen(current, data.user_id, data.last_seen_at));
                 return;
             }
 
@@ -1214,6 +1279,8 @@ function App() {
                     updated.delete(data.user_id);
                     return updated;
                 });
+
+                setLastSeenByUserId((current) => withLastSeen(current, data.user_id, data.last_seen_at));
 
                 setTypingUserIds((current) => {
                     const updated = new Set(current);
@@ -1236,6 +1303,8 @@ function App() {
 
                     return updated;
                 });
+
+                setLastSeenByUserId((current) => withLastSeen(current, data.user_id, data.last_seen_at));
 
                 return;
             }
@@ -2520,6 +2589,8 @@ function App() {
         setWsStatus("disconnected");
         setOnlineUserIds(new Set());
         setTypingUserIds(new Set());
+        setLastSeenByUserId(new Map());
+        setLastSeenVisibility(null);
     }
 
 
@@ -3245,7 +3316,9 @@ function App() {
                                               currentPeer.id,
                                           )
                                           ? "Online"
-                                          : "Offline"}
+                                          : lastSeenByUserId.has(currentPeer.id)
+                                            ? <LastSeenText at={lastSeenByUserId.get(currentPeer.id)!} />
+                                            : "Offline"}
                                 </span>
                             </div>
                             <button className="call-button" type="button" aria-label="Start audio call" title="Start audio call" disabled={wsStatus !== "connected" || Boolean(audioCall.call)} onClick={() => {
@@ -4049,13 +4122,34 @@ function App() {
                                             </div>
                                         </div>
 
+                                        {error && <div className="error-message settings-message">{error}</div>}
+                                        {profileMessage && <div className="profile-success settings-message">{profileMessage}</div>}
+
                                         <div className="privacy-options">
-                                            <div className="privacy-option disabled">
+                                            <div className="privacy-option">
                                                 <div>
-                                                    <strong>Last seen</strong>
-                                                    <span>Choose who can see when you were last online.</span>
+                                                    <strong id="last-seen-setting-label">Last seen</strong>
+                                                    <span>
+                                                        {lastSeenVisibility === "nobody"
+                                                            ? "Hidden. You also won't see when others were last online."
+                                                            : "People you chat with can see when you were last online."}
+                                                    </span>
                                                 </div>
-                                                <span className="settings-coming-soon">Coming later</span>
+                                                <div className="privacy-choice" role="radiogroup" aria-labelledby="last-seen-setting-label">
+                                                    {([["everyone", "Everyone"], ["nobody", "Nobody"]] as const).map(([value, label]) => (
+                                                        <button
+                                                            key={value}
+                                                            type="button"
+                                                            role="radio"
+                                                            aria-checked={lastSeenVisibility === value}
+                                                            className={lastSeenVisibility === value ? "active" : ""}
+                                                            disabled={lastSeenVisibility === null || privacySaving}
+                                                            onClick={() => void handleLastSeenVisibilityChange(value)}
+                                                        >
+                                                            {label}
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             </div>
 
                                             <div className="privacy-option disabled">

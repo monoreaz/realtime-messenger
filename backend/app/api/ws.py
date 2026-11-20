@@ -25,6 +25,7 @@ from app.database import AsyncSessionLocal
 from app.models.chat import Chat, ChatMember
 from app.models.user import User
 from app.realtime.manager import manager
+from app.services.presence import announce_last_seen, iso, mark_seen, presence_snapshot, visible_last_seen
 
 
 router = APIRouter(
@@ -139,11 +140,10 @@ async def websocket_endpoint(
         user.id
     )
 
-    online_peer_ids = [
-        str(peer_id)
-        for peer_id in peer_user_ids
-        if manager.is_online(peer_id)
-    ]
+    async with AsyncSessionLocal() as db:
+        if became_online:
+            await mark_seen(db, user.id)
+        snapshot = await presence_snapshot(db, user.id)
 
     await websocket.send_json(
         {
@@ -152,12 +152,7 @@ async def websocket_endpoint(
         }
     )
 
-    await websocket.send_json(
-        {
-            "type": "presence.snapshot",
-            "online_user_ids": online_peer_ids,
-        }
-    )
+    await websocket.send_json(snapshot)
 
     await replay_ringing_calls(websocket, user.id)
 
@@ -218,12 +213,22 @@ async def websocket_endpoint(
                 if target_user_id not in peer_user_ids:
                     continue
 
+                async with AsyncSessionLocal() as db:
+                    last_seen = await visible_last_seen(
+                        db,
+                        user.id,
+                        [target_user_id],
+                    )
+
                 await websocket.send_json(
                     {
                         "type": "presence.state",
                         "user_id": str(target_user_id),
                         "online": manager.is_online(
                             target_user_id
+                        ),
+                        "last_seen_at": iso(
+                            last_seen.get(target_user_id)
                         ),
                     }
                 )
@@ -286,17 +291,13 @@ async def websocket_endpoint(
         )
 
         if became_offline:
-            peer_user_ids = await get_peer_user_ids(
-                user.id
-            )
-
-            await manager.send_to_users(
-                peer_user_ids,
-                {
-                    "type": "presence.offline",
-                    "user_id": str(user.id),
-                },
-            )
+            async with AsyncSessionLocal() as db:
+                await mark_seen(db, user.id)
+                await announce_last_seen(
+                    db,
+                    user.id,
+                    "presence.offline",
+                )
 
 # Signaling is scoped to the authenticated participants and the accepting tab.
 active_calls: dict[str, tuple[uuid.UUID, uuid.UUID, WebSocket, WebSocket | None]] = {}

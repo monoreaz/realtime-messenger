@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -92,3 +93,10 @@ class UserResponse(BaseModel):
     bio: str | None
     avatar_url: str | None
     created_at: datetime
+
+class PrivacySettings(BaseModel):
+    last_seen: Literal["everyone", "nobody"]
+
+
+class PrivacyUpdate(BaseModel):
+    last_seen: Literal["everyone", "nobody"] | None = None
