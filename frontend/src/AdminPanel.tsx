@@ -89,7 +89,7 @@ export function AdminPanel({ token, currentUserId, onClose }: {
         </header>
         {error && <p className="admin-error" role="alert">{error} <button type="button" onClick={() => void refresh()} disabled={loading || saving}>Retry</button></p>}
         {notice && <p className="admin-notice" role="status">{notice}</p>}
-        <section className="admin-stats" aria-label="Messenger statistics" aria-busy={loading}>
+        <section className="admin-stats" aria-label="Slaxz statistics" aria-busy={loading}>
             {([
                 ["Users", stats?.users], ["Online now", stats?.online_users],
                 ["Groups", stats?.groups], ["Private chats", stats?.private_chats],

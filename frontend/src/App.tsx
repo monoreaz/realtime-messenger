@@ -2815,7 +2815,7 @@ function App() {
         return (
             <main className="loading-page" aria-busy="true">
                 <BrandMark className="is-pulsing" />
-                <span>Loading Messenger…</span>
+                <span>Loading Slaxz…</span>
             </main>
         );
     }
@@ -2827,7 +2827,7 @@ function App() {
                 <section className="auth-card">
                     <BrandMark className="auth-brand" />
 
-                    <h1>Messenger</h1>
+                    <h1>Slaxz</h1>
 
                     <p className="subtitle">
                         {mode === "login" && "Sign in to continue"}
@@ -3151,7 +3151,7 @@ function App() {
         return (
             <main className="loading-page" aria-busy="true">
                 <BrandMark className="is-pulsing" />
-                <span>Loading Messenger…</span>
+                <span>Loading Slaxz…</span>
             </main>
         );
     }
@@ -3981,7 +3981,7 @@ function App() {
                 ) : (
                     <div className="no-chat-selected">
                         <BrandMark className="empty-brand" />
-                        <h2>Your conversations</h2>
+                        <h2>Welcome to Slaxz</h2>
 
                         <p>
                             Choose a chat from the list, or search for someone by username to start a new one.
