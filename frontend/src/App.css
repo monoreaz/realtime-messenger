@@ -2487,6 +2487,109 @@
     opacity: 0.6;
 }
 
+.blocked-users {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 22px;
+}
+
+.blocked-users-header strong {
+    display: block;
+    font-size: var(--text-md);
+    font-weight: 500;
+}
+
+.blocked-users-header span {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-3);
+    font-size: 12.5px;
+}
+
+.blocked-users-list {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    list-style: none;
+    border-radius: 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+}
+
+.blocked-user {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+}
+
+.blocked-user + .blocked-user {
+    border-top: 1px solid var(--line);
+}
+
+.blocked-user-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.blocked-user-info strong,
+.blocked-user-info span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.blocked-user-info strong {
+    font-size: var(--text-md);
+    font-weight: 500;
+}
+
+.blocked-user-info span {
+    color: var(--text-3);
+    font-size: 12.5px;
+}
+
+.blocked-user-unblock,
+.blocked-composer button {
+    height: 34px;
+    flex-shrink: 0;
+    padding: 0 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--accent);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    transition: background var(--duration-fast) ease;
+}
+
+.blocked-user-unblock:hover:not(:disabled),
+.blocked-composer button:hover:not(:disabled) {
+    background: var(--accent-soft);
+}
+
+.blocked-user-unblock:disabled,
+.blocked-composer button:disabled {
+    opacity: 0.5;
+}
+
+.blocked-composer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    min-height: 52px;
+    padding: 8px 16px;
+    border-radius: 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    font-size: var(--text-sm);
+    text-align: center;
+}
+
 @media (max-width: 480px) {
     .privacy-option:has(.privacy-choice) {
         flex-direction: column;

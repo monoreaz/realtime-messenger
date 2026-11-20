@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
+from app.services.blocks import ensure_can_message
 from app.services.push import deliver_message_push
 from app.models.chat import ChatMember
 from app.models.message import Message
@@ -238,6 +239,7 @@ async def send_message(
         chat_id,
         current_user.id,
     )
+    await ensure_can_message(db, chat_id, current_user.id)
 
     replied_message = await get_replied_message(
         db,
@@ -300,6 +302,7 @@ async def send_image_message(
         chat_id,
         current_user.id,
     )
+    await ensure_can_message(db, chat_id, current_user.id)
 
     extension = ALLOWED_MESSAGE_IMAGE_TYPES.get(
         file.content_type or ""
@@ -425,6 +428,7 @@ async def send_video_message(
         chat_id,
         current_user.id,
     )
+    await ensure_can_message(db, chat_id, current_user.id)
 
     extension = ALLOWED_MESSAGE_VIDEO_TYPES.get(
         file.content_type or ""

@@ -35,6 +35,10 @@ import {
     unpinMessage,
     sendVideoMessage,
     getPrivacySettings,
+    getBlockedUsers,
+    blockUser,
+    unblockUser,
+    type BlockedUser,
     updatePrivacySettings,
     type SessionInfo,
     type Chat,
@@ -313,6 +317,11 @@ function App() {
     const [lastSeenVisibility, setLastSeenVisibility] = useState<LastSeenVisibility | null>(null);
     const [privacySaving, setPrivacySaving] = useState(false);
 
+    // Users the current user blocked; null until loaded.
+    const [blockedUsers, setBlockedUsers] = useState<BlockedUser[] | null>(null);
+    const [blockBusyUserId, setBlockBusyUserId] = useState<string | null>(null);
+    const blockedUserIds = new Set((blockedUsers ?? []).map((blocked) => blocked.id));
+
     const [profileOpen, setProfileOpen] = useState(false);
     const [adminPanelOpen, setAdminPanelOpen] = useState(false);
     const [groupDialogOpen, setGroupDialogOpen] = useState(false);
@@ -369,6 +378,25 @@ function App() {
     useEffect(() => {
         setPeerProfileOpen(false);
     }, [activeChat?.id, draftPeer?.id, user?.id]);
+
+    useEffect(() => {
+        setBlockedUsers(null);
+        if (!token || !user?.id) {
+            return;
+        }
+
+        let disposed = false;
+        getBlockedUsers(token)
+            .then((users) => {
+                if (!disposed) setBlockedUsers(users);
+            })
+            .catch(() => {
+                if (!disposed) setBlockedUsers([]);
+            });
+        return () => {
+            disposed = true;
+        };
+    }, [token, user?.id]);
 
 
     useLayoutEffect(() => {
@@ -505,6 +533,47 @@ function App() {
 
         if (tab === "privacy") {
             void loadPrivacySettings();
+            void loadBlockedUsers();
+        }
+    }
+
+    async function loadBlockedUsers() {
+        if (!token) {
+            return;
+        }
+
+        try {
+            setBlockedUsers(await getBlockedUsers(token));
+        } catch (caughtError) {
+            if (caughtError instanceof Error) {
+                setError(caughtError.message);
+            }
+        }
+    }
+
+    async function handleBlockChange(target: User, block: boolean) {
+        if (!token || blockBusyUserId) {
+            return;
+        }
+
+        setBlockBusyUserId(target.id);
+        setError("");
+        setProfileMessage("");
+
+        try {
+            if (block) {
+                const blocked = await blockUser(token, target.id);
+                setBlockedUsers((current) => [blocked, ...(current ?? []).filter((item) => item.id !== blocked.id)]);
+            } else {
+                await unblockUser(token, target.id);
+                setBlockedUsers((current) => (current ?? []).filter((item) => item.id !== target.id));
+            }
+        } catch (caughtError) {
+            if (caughtError instanceof Error) {
+                setError(caughtError.message);
+            }
+        } finally {
+            setBlockBusyUserId(null);
         }
     }
 
@@ -1246,6 +1315,11 @@ function App() {
             if (data.type === "connection.ready") {
                 setWsStatus("connected");
                 window.dispatchEvent(new Event("messenger-push-sync"));
+                return;
+            }
+
+            if (data.type === "blocks.updated") {
+                void getBlockedUsers(token).then(setBlockedUsers).catch(() => undefined);
                 return;
             }
 
@@ -3321,7 +3395,7 @@ function App() {
                                             : "Offline"}
                                 </span>
                             </div>
-                            <button className="call-button" type="button" aria-label="Start audio call" title="Start audio call" disabled={wsStatus !== "connected" || Boolean(audioCall.call)} onClick={() => {
+                            <button className="call-button" type="button" aria-label="Start audio call" title={blockedUserIds.has(currentPeer.id) ? "Unblock this user to call" : "Start audio call"} disabled={wsStatus !== "connected" || Boolean(audioCall.call) || blockedUserIds.has(currentPeer.id)} onClick={() => {
                                 if (!token) return;
                                 const peer = currentPeer;
                                 void createPrivateChat(token, peer.id)
@@ -3607,174 +3681,189 @@ function App() {
                         )}
                         </div>
 
-                        <div className="message-composer">
-                            {editingMessage && (
-                                <div className="editing-preview composer-preview">
-                                    <span className="composer-preview-icon"><Icon name="edit" /></span>
-                                    <div className="editing-preview-content">
-                                        <strong>Editing message</strong>
-                                        <span>{editingMessage.content}</span>
-                                    </div>
-
+                        {currentPeer && blockedUserIds.has(currentPeer.id) ? (
+                            <div className="message-composer">
+                                <div className="blocked-composer">
+                                    <span>You blocked {getUserDisplayName(currentPeer)}.</span>
                                     <button
                                         type="button"
-                                        onClick={cancelEditing}
-                                        aria-label="Cancel editing"
+                                        disabled={blockBusyUserId !== null}
+                                        onClick={() => void handleBlockChange(currentPeer, false)}
                                     >
-                                        <Icon name="close" />
+                                        {blockBusyUserId === currentPeer.id ? "Unblocking..." : "Unblock"}
                                     </button>
                                 </div>
-                            )}
+                            </div>
+                        ) : (
+                            <div className="message-composer">
+                                {editingMessage && (
+                                    <div className="editing-preview composer-preview">
+                                        <span className="composer-preview-icon"><Icon name="edit" /></span>
+                                        <div className="editing-preview-content">
+                                            <strong>Editing message</strong>
+                                            <span>{editingMessage.content}</span>
+                                        </div>
 
-                            {replyingTo && (
-                                <div className="replying-preview composer-preview">
-                                    <span className="composer-preview-icon"><Icon name="reply" /></span>
-                                    <div className="replying-preview-content">
-                                        <strong>
-                                            Replying to{" "}
-                                            {replyingTo.sender_id === user.id
-                                                ? "yourself"
-                                                : senderName(replyingTo.sender_id)}
-                                        </strong>
-
-                                        <span>
-                                            {messagePreviewText(replyingTo)}
-                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={cancelEditing}
+                                            aria-label="Cancel editing"
+                                        >
+                                            <Icon name="close" />
+                                        </button>
                                     </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => setReplyingTo(null)}
-                                        aria-label="Cancel reply"
-                                    >
-                                        <Icon name="close" />
-                                    </button>
-                                </div>
-                            )}
-
-                            {selectedImage && selectedImagePreview && (
-                                <div className="selected-image-preview composer-preview">
-                                    <img
-                                        src={selectedImagePreview}
-                                        alt="Selected"
-                                    />
-
-                                    <div className="selected-image-info">
-                                        <strong>{selectedImage.name}</strong>
-                                        <span>
-                                            {(selectedImage.size / 1024 / 1024).toFixed(1)} MB
-                                        </span>
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={clearSelectedImage}
-                                        aria-label="Remove selected image"
-                                    >
-                                        <Icon name="close" />
-                                    </button>
-                                </div>
-                            )}
-
-                            {selectedVideo && selectedVideoPreview && (
-                                <div className="selected-image-preview selected-video-preview composer-preview">
-                                    <div className="selected-video-thumbnail">
-                                        <video
-                                            src={selectedVideoPreview}
-                                            preload="metadata"
-                                            muted
-                                            playsInline
-                                        />
-                                        <span aria-hidden="true"><Icon name="play" /></span>
-                                    </div>
-
-                                    <div className="selected-image-info">
-                                        <strong>{selectedVideo.name}</strong>
-                                        <span>
-                                            {(selectedVideo.size / 1024 / 1024).toFixed(1)} MB · Video
-                                        </span>
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={clearSelectedVideo}
-                                        aria-label="Remove selected video"
-                                    >
-                                        <Icon name="close" />
-                                    </button>
-                                </div>
-                            )}
-
-                            <form
-                                className="message-form"
-                                onSubmit={handleSendMessage}
-                                onPaste={handleImagePaste}
-                            >
-                                {!editingMessage && (
-                                    <label
-                                        className="attachment-button"
-                                        title="Attach photo or video"
-                                        aria-label="Attach photo or video"
-                                        role="button"
-                                        tabIndex={sending ? -1 : 0}
-                                        aria-disabled={sending}
-                                        onKeyDown={(event) => {
-                                            if (event.key === "Enter" || event.key === " ") {
-                                                event.preventDefault();
-                                                imageInputRef.current?.click();
-                                            }
-                                        }}
-                                    >
-                                        <Icon name="paperclip" />
-                                        <input
-                                            ref={imageInputRef}
-                                            type="file"
-                                            accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
-                                            onChange={handleAttachmentSelect}
-                                            disabled={sending}
-                                            hidden
-                                        />
-                                    </label>
                                 )}
 
-                                <input
-                                    ref={messageInputRef}
-                                    type="text"
-                                    placeholder={
-                                        editingMessage
-                                            ? "Edit message..."
-                                            : selectedImage || selectedVideo
-                                              ? "Add a caption..."
-                                              : replyingTo
-                                                ? "Write a reply..."
-                                                : "Write a message..."
-                                    }
-                                    value={messageInput}
-                                    onChange={handleMessageInputChange}
-                                    maxLength={4000}
-                                    autoComplete="off"
-                                    aria-label="Message"
-                                />
+                                {replyingTo && (
+                                    <div className="replying-preview composer-preview">
+                                        <span className="composer-preview-icon"><Icon name="reply" /></span>
+                                        <div className="replying-preview-content">
+                                            <strong>
+                                                Replying to{" "}
+                                                {replyingTo.sender_id === user.id
+                                                    ? "yourself"
+                                                    : senderName(replyingTo.sender_id)}
+                                            </strong>
 
-                                <button
-                                    className="send-button"
-                                    type="submit"
-                                    aria-label={editingMessage ? "Save edit" : "Send message"}
-                                    title={editingMessage ? "Save" : "Send"}
-                                    disabled={
-                                        editingMessage
-                                            ? messageActionLoading === editingMessage.id ||
-                                              !messageInput.trim()
-                                            : sending ||
-                                              (!messageInput.trim() &&
-                                                  !selectedImage &&
-                                                  !selectedVideo)
-                                    }
+                                            <span>
+                                                {messagePreviewText(replyingTo)}
+                                            </span>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setReplyingTo(null)}
+                                            aria-label="Cancel reply"
+                                        >
+                                            <Icon name="close" />
+                                        </button>
+                                    </div>
+                                )}
+
+                                {selectedImage && selectedImagePreview && (
+                                    <div className="selected-image-preview composer-preview">
+                                        <img
+                                            src={selectedImagePreview}
+                                            alt="Selected"
+                                        />
+
+                                        <div className="selected-image-info">
+                                            <strong>{selectedImage.name}</strong>
+                                            <span>
+                                                {(selectedImage.size / 1024 / 1024).toFixed(1)} MB
+                                            </span>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={clearSelectedImage}
+                                            aria-label="Remove selected image"
+                                        >
+                                            <Icon name="close" />
+                                        </button>
+                                    </div>
+                                )}
+
+                                {selectedVideo && selectedVideoPreview && (
+                                    <div className="selected-image-preview selected-video-preview composer-preview">
+                                        <div className="selected-video-thumbnail">
+                                            <video
+                                                src={selectedVideoPreview}
+                                                preload="metadata"
+                                                muted
+                                                playsInline
+                                            />
+                                            <span aria-hidden="true"><Icon name="play" /></span>
+                                        </div>
+
+                                        <div className="selected-image-info">
+                                            <strong>{selectedVideo.name}</strong>
+                                            <span>
+                                                {(selectedVideo.size / 1024 / 1024).toFixed(1)} MB · Video
+                                            </span>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={clearSelectedVideo}
+                                            aria-label="Remove selected video"
+                                        >
+                                            <Icon name="close" />
+                                        </button>
+                                    </div>
+                                )}
+
+                                <form
+                                    className="message-form"
+                                    onSubmit={handleSendMessage}
+                                    onPaste={handleImagePaste}
                                 >
-                                    <Icon name={editingMessage ? "check" : "send"} />
-                                </button>
-                            </form>
-                        </div>
+                                    {!editingMessage && (
+                                        <label
+                                            className="attachment-button"
+                                            title="Attach photo or video"
+                                            aria-label="Attach photo or video"
+                                            role="button"
+                                            tabIndex={sending ? -1 : 0}
+                                            aria-disabled={sending}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault();
+                                                    imageInputRef.current?.click();
+                                                }
+                                            }}
+                                        >
+                                            <Icon name="paperclip" />
+                                            <input
+                                                ref={imageInputRef}
+                                                type="file"
+                                                accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+                                                onChange={handleAttachmentSelect}
+                                                disabled={sending}
+                                                hidden
+                                            />
+                                        </label>
+                                    )}
+
+                                    <input
+                                        ref={messageInputRef}
+                                        type="text"
+                                        placeholder={
+                                            editingMessage
+                                                ? "Edit message..."
+                                                : selectedImage || selectedVideo
+                                                  ? "Add a caption..."
+                                                  : replyingTo
+                                                    ? "Write a reply..."
+                                                    : "Write a message..."
+                                        }
+                                        value={messageInput}
+                                        onChange={handleMessageInputChange}
+                                        maxLength={4000}
+                                        autoComplete="off"
+                                        aria-label="Message"
+                                    />
+
+                                    <button
+                                        className="send-button"
+                                        type="submit"
+                                        aria-label={editingMessage ? "Save edit" : "Send message"}
+                                        title={editingMessage ? "Save" : "Send"}
+                                        disabled={
+                                            editingMessage
+                                                ? messageActionLoading === editingMessage.id ||
+                                                  !messageInput.trim()
+                                                : sending ||
+                                                  (!messageInput.trim() &&
+                                                      !selectedImage &&
+                                                      !selectedVideo)
+                                        }
+                                    >
+                                        <Icon name={editingMessage ? "check" : "send"} />
+                                    </button>
+                                </form>
+                            </div>
+                        )}
 
                         {contextMenu && (
                             <div
@@ -4175,14 +4264,42 @@ function App() {
                                                 </div>
                                                 <span className="settings-coming-soon">Coming later</span>
                                             </div>
+                                        </div>
 
-                                            <div className="privacy-option disabled">
-                                                <div>
-                                                    <strong>Blocked users</strong>
-                                                    <span>Manage people you do not want to receive messages from.</span>
-                                                </div>
-                                                <span className="settings-coming-soon">Coming later</span>
+                                        <div className="blocked-users">
+                                            <div className="blocked-users-header">
+                                                <strong>Blocked users</strong>
+                                                <span>
+                                                    Blocked users can't message or call you, and you won't see each other's
+                                                    online status or last seen. To block someone, open their profile in a chat.
+                                                </span>
                                             </div>
+
+                                            {blockedUsers === null ? (
+                                                <div className="sessions-empty">Loading blocked users...</div>
+                                            ) : blockedUsers.length === 0 ? (
+                                                <div className="sessions-empty">You haven't blocked anyone.</div>
+                                            ) : (
+                                                <ul className="blocked-users-list">
+                                                    {blockedUsers.map((blocked) => (
+                                                        <li key={blocked.id} className="blocked-user">
+                                                            <UserAvatar user={blocked} className="small-avatar" />
+                                                            <div className="blocked-user-info">
+                                                                <strong>{getUserDisplayName(blocked)}</strong>
+                                                                <span>@{blocked.username}</span>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                className="blocked-user-unblock"
+                                                                disabled={blockBusyUserId !== null}
+                                                                onClick={() => void handleBlockChange(blocked, false)}
+                                                            >
+                                                                {blockBusyUserId === blocked.id ? "Unblocking..." : "Unblock"}
+                                                            </button>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
                                         </div>
                                     </section>
                                 )}
@@ -4195,6 +4312,9 @@ function App() {
             {peerProfileOpen && currentPeer && (
                 <PeerProfileDialog
                     user={currentPeer}
+                    blocked={blockedUserIds.has(currentPeer.id)}
+                    busy={blockBusyUserId !== null}
+                    onBlockChange={(block) => handleBlockChange(currentPeer, block)}
                     onClose={() => setPeerProfileOpen(false)}
                 />
             )}

@@ -94,6 +94,10 @@ class UserResponse(BaseModel):
     avatar_url: str | None
     created_at: datetime
 
+class BlockedUserResponse(UserResponse):
+    blocked_at: datetime
+
+
 class PrivacySettings(BaseModel):
     last_seen: Literal["everyone", "nobody"]
 

@@ -1064,3 +1064,32 @@ export async function updatePrivacySettings(token: string, settings: Partial<Pri
     if (!response.ok) throw new Error(await getErrorMessage(response, "Could not save privacy settings"));
     return response.json();
 }
+
+export interface BlockedUser extends User {
+    blocked_at: string;
+}
+
+export async function getBlockedUsers(token: string): Promise<BlockedUser[]> {
+    const response = await fetch(`${API_BASE_URL}/users/me/blocked`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not load blocked users"));
+    return response.json();
+}
+
+export async function blockUser(token: string, userId: string): Promise<BlockedUser> {
+    const response = await fetch(`${API_BASE_URL}/users/me/blocked/${userId}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not block this user"));
+    return response.json();
+}
+
+export async function unblockUser(token: string, userId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/users/me/blocked/${userId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not unblock this user"));
+}

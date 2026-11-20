@@ -25,6 +25,7 @@ from app.database import AsyncSessionLocal
 from app.models.chat import Chat, ChatMember
 from app.models.user import User
 from app.realtime.manager import manager
+from app.services.blocks import block_status, blocked_peer_ids
 from app.services.presence import announce_last_seen, iso, mark_seen, presence_snapshot, visible_last_seen
 
 
@@ -59,6 +60,7 @@ async def get_peer_user_ids(
 
         return list(
             set(peer_result.scalars().all())
+            - await blocked_peer_ids(db, user_id)
         )
 
 
@@ -263,10 +265,15 @@ async def websocket_endpoint(
             if user.id not in member_ids:
                 continue
 
+            blocked_ids: set[uuid.UUID] = set()
+            async with AsyncSessionLocal() as db:
+                if await db.scalar(select(Chat.type).where(Chat.id == chat_id)) == "private":
+                    blocked_ids = await blocked_peer_ids(db, user.id)
+
             recipient_ids = [
                 member_id
                 for member_id in member_ids
-                if member_id != user.id
+                if member_id != user.id and member_id not in blocked_ids
             ]
 
             await manager.send_to_users(
@@ -376,6 +383,12 @@ async def finish_call(call_id: str, reason: str) -> None:
     await save_call_message(call_id, call[0], call[1], duration, reason)
 
 
+async def end_calls_between(user_id: uuid.UUID, peer_id: uuid.UUID) -> None:
+    for call_id, call in list(active_calls.items()):
+        if set(call[:2]) == {user_id, peer_id}:
+            await finish_call(call_id, "cancelled")
+
+
 async def expire_call(call_id: str) -> None:
     await asyncio.sleep(65)
     call = active_calls.get(call_id)
@@ -421,7 +434,11 @@ async def handle_call_signal(websocket: WebSocket, user: User, data: dict) -> No
             private_chat = await db.scalar(select(Chat.id).where(
                 Chat.type == "private", Chat.direct_key == direct_key,
             ))
+            blocked = private_chat is not None and await block_status(db, user.id, peer_id) is not None
         if private_chat is None:
+            return
+        if blocked:
+            await websocket.send_json({"type": "call.end", "call_id": call_id, "reason": "blocked"})
             return
         reason = "offline" if not manager.is_online(peer_id) and not await can_receive_call_push(peer_id) else None
         if any(user.id in item[:2] or peer_id in item[:2] for item in active_calls.values()):

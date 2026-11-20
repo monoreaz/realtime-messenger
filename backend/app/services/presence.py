@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
+from app.services.blocks import blocked_peer_ids
 
 LAST_SEEN_VISIBILITY = ("everyone", "nobody")
 
@@ -64,7 +65,7 @@ async def peer_user_ids(db: AsyncSession, user_id: uuid.UUID) -> list[uuid.UUID]
             ChatMember.user_id != user_id,
         )
     )
-    return list(set(result.scalars().all()))
+    return list(set(result.scalars().all()) - await blocked_peer_ids(db, user_id))
 
 
 async def presence_snapshot(db: AsyncSession, user_id: uuid.UUID) -> dict:

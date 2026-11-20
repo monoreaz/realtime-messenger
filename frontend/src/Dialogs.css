@@ -684,3 +684,58 @@
         font-size: 16px;
     }
 }
+
+.peer-block-button,
+.peer-block-confirm button {
+    height: 38px;
+    padding: 0 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    transition: background var(--duration-fast) ease;
+}
+
+.peer-block-button {
+    width: 100%;
+    margin-top: 14px;
+}
+
+.peer-block-button:hover:not(:disabled),
+.peer-block-confirm button:hover:not(:disabled) {
+    background: var(--surface-2);
+}
+
+.peer-block-button.danger,
+.peer-block-confirm button.danger {
+    border-color: rgba(255, 120, 115, 0.22);
+    color: var(--danger);
+}
+
+.peer-block-button.danger:hover:not(:disabled),
+.peer-block-confirm button.danger:hover:not(:disabled) {
+    background: var(--danger-soft);
+}
+
+.peer-block-confirm {
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    text-align: left;
+}
+
+.peer-block-confirm p {
+    color: var(--text-2);
+    font-size: var(--text-sm);
+}
+
+.peer-block-confirm div {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
