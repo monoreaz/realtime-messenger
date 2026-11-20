@@ -163,10 +163,16 @@ async def main():
         url = image_message["image_url"]
         status, headers, _ = http("GET", BASE + "/api" + url)
         report("message image requires authentication", status in (401, 403, 404), f"(GET without auth -> {status})")
+        status, _, _ = http("GET", BASE + "/api" + url, token_a)
+        report("signed-in user outside the chat cannot download its image", status == 404, f"(user A -> {status})")
+        status, _, _ = http("GET", BASE + "/api" + url, token_a, headers={"Range": "bytes=0-3"})
+        report("...nor a byte range of it", status == 404, f"({status})")
+        status, _, body = http("GET", BASE + "/api" + url, token_c, headers={"Range": "bytes=0-3"})
+        report("chat member gets the byte range", status == 206 and body == png_bytes()[:4], f"({status})")
         report("uploads send X-Content-Type-Options: nosniff", headers.get("x-content-type-options", "").lower() == "nosniff")
         http("DELETE", f"/chats/{chat_bc['id']}/messages/{image_message['id']}", token_b)
-        status, _, _ = http("GET", BASE + "/api" + url)
-        report("deleted message image is no longer served", status == 404, f"(after delete -> {status})")
+        status, _, _ = http("GET", BASE + "/api" + url, token_b)
+        report("deleted message image is no longer served (even to chat members)", status == 404, f"(after delete -> {status})")
         html = b"<html><script>alert(document.domain)</script></html>"
         data, ctype = multipart("file", "x.png", html, "image/png")
         status, _, body = http("POST", f"/chats/{chat_bc['id']}/messages/image", token_b, raw=data, ctype=ctype)

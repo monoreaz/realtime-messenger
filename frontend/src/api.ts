@@ -1014,6 +1014,14 @@ export const setAdminUserBlocked = (token: string, userId: string, isBlocked: bo
     adminRequest<AdminUser>(token, `/users/${userId}/block`, "PATCH", { is_blocked: isBlocked });
 
 
+export async function leaveGroup(token: string, chatId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/chats/${chatId}/leave`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not leave the group"));
+}
+
 export async function updateGroupProfile(token: string, chatId: string, data: { name: string; username: string | null; description: string | null }): Promise<Chat> {
     const response = await fetch(`${API_BASE_URL}/chats/${chatId}/group`, {
         method: "PATCH",

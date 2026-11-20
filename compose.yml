@@ -25,7 +25,9 @@ services:
     restart: unless-stopped
 
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # Least-privilege role from ops/db/least-privilege.sql (data access only). Until
+      # APP_DB_USER/APP_DB_PASSWORD are set in .env, the bootstrap superuser is used.
+      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER:-${POSTGRES_USER}}:${APP_DB_PASSWORD:-${POSTGRES_PASSWORD}}@db:5432/${POSTGRES_DB}
       TURN_URLS: ${TURN_URLS:-}
       TURN_SECRET_FILE: /run/messenger-secrets/turn-secret
       PUSH_ENABLED: ${PUSH_ENABLED:-false}
@@ -68,6 +70,22 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
               "--proxy-headers", "--forwarded-allow-ips", "*", "--ws-max-size", "262144"]
 
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Schema migrations, with the migration role (owner of the schema). The long-running
+  # backend never holds these credentials:  docker compose run --rm migrate
+  migrate:
+    # Same image as the backend (no rebuild, so no untested dependency versions).
+    image: messenger-backend
+    profiles: ["migrate"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${MIGRATOR_DB_USER:-${POSTGRES_USER}}:${MIGRATOR_DB_PASSWORD:-${POSTGRES_PASSWORD}}@db:5432/${POSTGRES_DB}
+      JWT_SECRET_KEY: migrations-do-not-use-tokens
+    volumes:
+      - ./backend:/app:ro
+    command: ["alembic", "upgrade", "head"]
     depends_on:
       db:
         condition: service_healthy

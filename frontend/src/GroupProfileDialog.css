@@ -269,3 +269,37 @@
 .member-block-button:hover:not(:disabled) {
     background: #f0645c;
 }
+
+.group-profile-leave {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.group-profile-leave .group-profile-actions {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.group-profile-leave .group-profile-actions span {
+    flex: 1 1 100%;
+    color: var(--text-2);
+    font-size: var(--text-sm);
+}
+
+.group-profile-leave-button,
+.group-profile-leave-confirm {
+    height: 38px;
+    border: 1px solid rgba(255, 120, 115, 0.22);
+    border-radius: 11px;
+    background: transparent;
+    color: var(--danger);
+    font-size: var(--text-sm);
+    font-weight: 500;
+}
+
+.group-profile-leave-button:hover,
+.group-profile-leave-confirm:hover:not(:disabled) {
+    background: var(--danger-soft);
+}

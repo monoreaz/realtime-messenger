@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { getMediaUrl, setAdminUserBlocked, updateGroupProfile } from "./api";
+import { getMediaUrl, leaveGroup, setAdminUserBlocked, updateGroupProfile } from "./api";
 import { PeerProfileDialog } from "./PeerProfileDialog";
 import type { Chat } from "./api";
 import { avatarInitials, avatarStyle } from "./avatar";
 import { Icon } from "./Icon";
 import "./GroupProfileDialog.css";
 
-export function GroupProfileDialog({ chat, token, currentUserId, isSiteAdmin, onClose, onUpdated }: {
-    chat: Chat; token: string; currentUserId: string; isSiteAdmin: boolean; onClose: () => void; onUpdated: (chat: Chat) => void;
+export function GroupProfileDialog({ chat, token, currentUserId, isSiteAdmin, onClose, onUpdated, onLeft }: {
+    chat: Chat; token: string; currentUserId: string; isSiteAdmin: boolean; onClose: () => void; onUpdated: (chat: Chat) => void; onLeft: (chatId: string) => void;
 }) {
     const dialogRef = useRef<HTMLDialogElement>(null);
     const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
@@ -21,6 +21,7 @@ export function GroupProfileDialog({ chat, token, currentUserId, isSiteAdmin, on
     const [description, setDescription] = useState(chat.description ?? "");
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
+    const [confirmingLeave, setConfirmingLeave] = useState(false);
     const isAdmin = chat.members.some(member => member.id === currentUserId && member.group_role === "admin");
     const members = [...chat.members].sort((a, b) => Number(b.group_role === "admin") - Number(a.group_role === "admin"));
 
@@ -56,6 +57,19 @@ export function GroupProfileDialog({ chat, token, currentUserId, isSiteAdmin, on
         }
     }
 
+    async function leave() {
+        if (saving) return;
+        setSaving(true);
+        setError("");
+        try {
+            await leaveGroup(token, chat.id);
+            onLeft(chat.id);
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : "Could not leave the group");
+            setSaving(false);
+        }
+    }
+
     return <dialog ref={dialogRef} className="group-profile-dialog" aria-labelledby="group-profile-title" onCancel={event => {
         if (saving || editing) { event.preventDefault(); if (!saving) setEditing(false); }
         else onClose();
@@ -80,6 +94,14 @@ export function GroupProfileDialog({ chat, token, currentUserId, isSiteAdmin, on
                     if (isSiteAdmin && member.id !== currentUserId && !member.is_admin) setModeratedMemberId(member.id);
                 }}><div className="avatar group-member-avatar" style={avatarStyle(member.id)}>{avatar ? <img src={avatar} alt="" /> : <span className="avatar-initials">{avatarInitials(displayName)}</span>}</div><div className="group-member-name"><strong>{displayName}{member.id === currentUserId ? " (you)" : ""}</strong><small>@{member.username}</small></div>{member.group_role === "admin" && <span className="group-admin-badge">Admin</span>}</button></li>;
             })}</ul></section>
+            <section className="group-profile-leave">
+                {error && <p className="group-profile-error" role="alert">{error}</p>}
+                {confirmingLeave ? <div className="group-profile-actions">
+                    <span>Leave “{chat.name}”? You will stop receiving its messages.</span>
+                    <button type="button" disabled={saving} onClick={() => setConfirmingLeave(false)}>Cancel</button>
+                    <button type="button" className="group-profile-leave-confirm" disabled={saving} onClick={() => void leave()}>{saving ? "Leaving…" : "Leave"}</button>
+                </div> : <button type="button" className="group-profile-leave-button" onClick={() => setConfirmingLeave(true)}>Leave group</button>}
+            </section>
         </>}
         {moderatedMember && isSiteAdmin && <MemberModerationDialog key={moderatedMember.id} member={moderatedMember} token={token} onClose={() => setModeratedMemberId(null)} />}
         {selectedMember && <PeerProfileDialog user={selectedMember} onClose={() => setSelectedMemberId(null)} />}

@@ -4,6 +4,7 @@ Each test reproduces a confirmed vulnerability: it fails on the code before the 
 and passes after it. Requests go through the real ASGI app against a rolled-back
 test database.
 """
+import asyncio
 import json
 import os
 import struct
@@ -66,7 +67,9 @@ class Socket:
         self.closed_with = code
 
 
-class SecurityTests(unittest.IsolatedAsyncioTestCase):
+class AuditTestCase(unittest.IsolatedAsyncioTestCase):
+    """Users A and B with a private chat, the ASGI app and a rolled-back database."""
+
     async def asyncSetUp(self):
         if limiter is not None:
             limiter.reset()
@@ -123,7 +126,9 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
             if pending:
                 part = pending.pop(0)
                 return {"type": "http.request", "body": part, "more_body": bool(pending)}
-            return {"type": "http.disconnect"}
+            # Like a real client: stay connected until the response is done (streaming
+            # responses watch receive() for a disconnect and cancel this wait).
+            await asyncio.Event().wait()
 
         async def send(event):
             events.append(event)
@@ -154,6 +159,8 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
         cookie = next(value for value in headers["set-cookie"] if value.startswith(auth.REFRESH_COOKIE_NAME))
         return status, data["access_token"], cookie.split(";")[0]
 
+
+class SecurityTests(AuditTestCase):
     # --- Session revocation -------------------------------------------------------
 
     async def test_logout_revokes_the_access_token(self):
@@ -294,13 +301,13 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 201)
         path = Path("/app") / message["image_url"].lstrip("/")
         self.assertTrue(path.exists())
-        status, headers, _ = await self.call("GET", message["image_url"])
+        status, headers, _ = await self.call("GET", message["image_url"], token=token)
         self.assertEqual(status, 200)
         self.assertEqual(headers.get("x-content-type-options"), ["nosniff"])
         status, _, _ = await self.call("DELETE", f"/chats/{self.chat.id}/messages/{message['id']}", token=token)
         self.assertEqual(status, 200)
         self.assertFalse(path.exists())
-        self.assertEqual((await self.call("GET", message["image_url"]))[0], 404)
+        self.assertEqual((await self.call("GET", message["image_url"], token=token))[0], 404)
 
     # --- Misc hardening ---------------------------------------------------------------
 

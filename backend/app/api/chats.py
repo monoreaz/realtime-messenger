@@ -21,6 +21,8 @@ from app.models.user import User
 from app.schemas.chat import ChatResponse, LastMessageResponse, GroupCreate, GroupDetails, ChatMemberResponse
 from app.schemas.user import UserResponse
 from app.realtime.manager import manager
+from app.core.rate_limit import enforce
+from app.services.blocks import blocked_peer_ids
 
 router = APIRouter(
     prefix="/chats",
@@ -353,6 +355,10 @@ async def mark_chat_read(
         status_code=status.HTTP_204_NO_CONTENT
     )
 
+GROUP_CREATE_LIMIT = 10
+GROUP_CREATE_WINDOW_SECONDS = 3600
+
+
 @router.post("/group", response_model=ChatResponse, status_code=status.HTTP_201_CREATED)
 async def create_group_chat(
     data: GroupCreate,
@@ -362,9 +368,16 @@ async def create_group_chat(
     invited_ids = set(data.member_ids) - {current_user.id}
     if len(invited_ids) < 2:
         raise HTTPException(status_code=422, detail="Select at least two other participants")
-    users = (await db.scalars(select(User).where(User.id.in_(invited_ids)))).all()
+    # Creating groups puts people into a conversation without asking them; limit how
+    # often one account can do it.
+    enforce(f"create-group:user:{current_user.id}", GROUP_CREATE_LIMIT, GROUP_CREATE_WINDOW_SECONDS)
+    users = (await db.scalars(select(User).where(User.id.in_(invited_ids), User.is_blocked.is_(False)))).all()
     if len(users) != len(invited_ids):
         raise HTTPException(status_code=404, detail="One or more users were not found")
+    # A block (in either direction) also stops being added to groups by that person.
+    # The message does not say who blocked whom.
+    if invited_ids & await blocked_peer_ids(db, current_user.id):
+        raise HTTPException(status_code=403, detail="Some of the selected people can't be added to a group by you")
     chat = Chat(type="group", name=data.name, username=data.username, description=data.description)
     db.add(chat)
     try:
@@ -406,3 +419,36 @@ async def update_group(
     member_ids = (await db.scalars(select(ChatMember.user_id).where(ChatMember.chat_id == chat.id))).all()
     await manager.send_to_users(list(member_ids), {"type": "chat.updated", "chat_id": str(chat.id)})
     return await build_chat_response(db, chat, None, current_user.id)
+
+
+@router.post("/{chat_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
+async def leave_group(
+    chat_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    """Leave a group. Anyone can be added to a group, so anyone must be able to leave it.
+
+    If the last administrator leaves, the longest-standing member becomes administrator;
+    if nobody is left, the group and its messages are deleted.
+    """
+    membership = await db.get(ChatMember, (chat_id, current_user.id))
+    chat = await db.get(Chat, chat_id)
+    if membership is None or chat is None or chat.type != "group":
+        raise HTTPException(status_code=404, detail="Group not found")
+    await db.delete(membership)
+    await db.flush()
+    remaining = (await db.scalars(
+        select(ChatMember).where(ChatMember.chat_id == chat_id).order_by(ChatMember.joined_at, ChatMember.user_id)
+    )).all()
+    if not remaining:
+        await db.delete(chat)
+    elif not any(member.group_role == "admin" for member in remaining):
+        remaining[0].group_role = "admin"
+    await db.commit()
+    # The leaver's clients drop the chat; the others refresh its member list.
+    await manager.send_to_users(
+        [member.user_id for member in remaining] + [current_user.id],
+        {"type": "chat.updated", "chat_id": str(chat_id)},
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

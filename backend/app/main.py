@@ -16,11 +16,11 @@ from app.api.users import router as users_router
 from app.api.chats import router as chats_router
 from app.api.messages import router as messages_router
 from app.api.ws import router as ws_router
+from app.api.media import router as media_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
 from pathlib import Path
-from fastapi.staticfiles import StaticFiles
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,13 +47,7 @@ UPLOAD_DIR.mkdir(
     exist_ok=True,
 )
 
-app.mount(
-    "/uploads",
-    StaticFiles(
-        directory=UPLOAD_DIR,
-    ),
-    name="uploads",
-)
+# Uploaded files are served by app/api/media.py, which checks who may see each file.
 
 # The web app is served from the same origin as the API, so no cross-origin access is
 # needed in production. Development origins can be listed in CORS_ALLOWED_ORIGINS.
@@ -92,6 +86,7 @@ app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)
 app.include_router(ws_router)
+app.include_router(media_router)
 
 @app.get("/")
 async def root():

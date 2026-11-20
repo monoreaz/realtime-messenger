@@ -1408,8 +1408,9 @@ function App() {
             if (data.type === "chat.created" || data.type === "chat.updated") {
                 void getChats(token).then(items => {
                     setChats(getVisibleChats(items));
+                    // A chat missing from the refreshed list was left (or deleted): close it.
                     setActiveChat(current => current && current.id === data.chat_id
-                        ? items.find(item => item.id === current.id) ?? current : current);
+                        ? items.find(item => item.id === current.id) ?? null : current);
                 })
                     .catch(() => setError("Could not refresh chats"));
                 return;
@@ -3433,6 +3434,10 @@ function App() {
                                 onClose={() => setGroupMembersOpen(false)} onUpdated={updated => {
                                     setChats(items => items.map(item => item.id === updated.id ? updated : item));
                                     setActiveChat(current => current?.id === updated.id ? updated : current);
+                                }} onLeft={chatId => {
+                                    setGroupMembersOpen(false);
+                                    setChats(items => items.filter(item => item.id !== chatId));
+                                    setActiveChat(current => current?.id === chatId ? null : current);
                                 }} />
                         )}
                         {displayedPin && (
