@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user
+from app.core.rate_limit import ENABLED as RATE_LIMITS_ENABLED, enforce, limit_by_ip, limiter, too_many
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -31,6 +32,7 @@ from app.models.auth_session import AuthSession
 from app.models.email_verification import EmailVerificationToken
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
+from app.realtime.manager import manager
 from app.schemas.auth import (
     AuthSessionResponse,
     ChangePasswordRequest,
@@ -71,6 +73,17 @@ PASSWORD_RESET_EXPIRE_MINUTES = int(
         "30",
     )
 )
+
+PASSWORD_RESET_COOLDOWN_SECONDS = int(
+    os.getenv(
+        "PASSWORD_RESET_COOLDOWN_SECONDS",
+        "60",
+    )
+)
+
+# Failed sign-ins allowed per account before it is temporarily locked out.
+LOGIN_FAILURE_LIMIT = 10
+LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
 
 PUBLIC_APP_URL = os.getenv(
     "PUBLIC_APP_URL",
@@ -156,7 +169,7 @@ async def create_refresh_session(
     user_id: UUID,
     remember_me: bool,
     user_agent: str | None = None,
-) -> str:
+) -> tuple[str, AuthSession]:
     raw_token = secrets.token_urlsafe(48)
 
     now = datetime.now(
@@ -192,7 +205,7 @@ async def create_refresh_session(
 
     await db.flush()
 
-    return raw_token
+    return raw_token, session
 
 
 @router.post(
@@ -203,6 +216,7 @@ async def create_refresh_session(
 async def register(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(limit_by_ip("register", 10, 3600)),
 ):
     email = str(
         user_data.email
@@ -319,6 +333,7 @@ async def register(
 async def verify_email(
     verification_data: EmailVerificationRequest,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(limit_by_ip("verify-email", 30, 900)),
 ):
     token_hash = hash_raw_token(
         verification_data.token
@@ -392,6 +407,7 @@ async def verify_email(
 async def resend_verification(
     data: ResendVerificationRequest,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(limit_by_ip("resend-verification", 10, 900)),
 ):
     email = str(
         data.email
@@ -523,6 +539,9 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Limits guessing the current password with a stolen access token.
+    enforce(f"change-password:user:{current_user.id}", 10, 900)
+
     if not verify_password(
         data.current_password,
         current_user.password_hash,
@@ -576,6 +595,9 @@ async def change_password(
 
     await db.commit()
 
+    # Every session was revoked above, so every open socket goes too.
+    await manager.close_sessions(current_user.id)
+
     return Response(
         status_code=status.HTTP_204_NO_CONTENT
     )
@@ -588,6 +610,7 @@ async def change_password(
 async def forgot_password(
     data: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(limit_by_ip("forgot-password", 10, 900)),
 ):
     email = str(
         data.email
@@ -612,6 +635,23 @@ async def forgot_password(
     now = datetime.now(
         timezone.utc
     )
+
+    # One reset email per address per cooldown, so the endpoint cannot be used to
+    # flood someone's inbox. The response stays 204 either way (no enumeration).
+    latest_reset = await db.scalar(
+        select(func.max(PasswordResetToken.created_at)).where(
+            PasswordResetToken.user_id == user.id
+        )
+    )
+
+    if (
+        latest_reset is not None
+        and (now - latest_reset).total_seconds()
+        < PASSWORD_RESET_COOLDOWN_SECONDS
+    ):
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT
+        )
 
     await db.execute(
         update(PasswordResetToken)
@@ -687,6 +727,7 @@ async def forgot_password(
 async def reset_password(
     data: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(limit_by_ip("reset-password", 20, 900)),
 ):
     token_hash = hash_raw_token(
         data.token
@@ -774,6 +815,8 @@ async def reset_password(
 
     await db.commit()
 
+    await manager.close_sessions(user.id)
+
     return Response(
         status_code=status.HTTP_204_NO_CONTENT
     )
@@ -795,11 +838,21 @@ async def login(
         Form(),
     ] = False,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(limit_by_ip("login", 30, 300)),
 ):
     identifier = (
         form_data.username
         .strip()
     )
+
+    # Per-account lockout after repeated failures, whichever IP they come from.
+    failure_key = f"login-failures:{identifier.lower()}"
+
+    if RATE_LIMITS_ENABLED:
+        retry = limiter.retry_after(failure_key, LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_SECONDS)
+
+        if retry is not None:
+            raise too_many(retry)
 
     result = await db.execute(
         select(User).where(
@@ -821,6 +874,8 @@ async def login(
             user.password_hash,
         )
     ):
+        limiter.record(failure_key)
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username, email or password",
@@ -841,7 +896,7 @@ async def login(
             detail="Email is not verified",
         )
 
-    raw_refresh_token = (
+    raw_refresh_token, auth_session = (
         await create_refresh_session(
             db,
             user.id,
@@ -861,7 +916,8 @@ async def login(
     )
 
     access_token = create_access_token(
-        str(user.id)
+        str(user.id),
+        auth_session.id,
     )
 
     return Token(
@@ -978,7 +1034,8 @@ async def refresh_access_token(
     )
 
     access_token = create_access_token(
-        str(user.id)
+        str(user.id),
+        session.id,
     )
 
     return Token(
@@ -1025,6 +1082,8 @@ async def logout(
             )
 
             await db.commit()
+
+            await manager.close_sessions(session.user_id, [session.id])
 
     response.delete_cookie(
         key=REFRESH_COOKIE_NAME,
@@ -1157,6 +1216,8 @@ async def revoke_session(
 
     await db.commit()
 
+    await manager.close_sessions(current_user.id, [session.id])
+
     return Response(
         status_code=status.HTTP_204_NO_CONTENT
     )
@@ -1213,7 +1274,7 @@ async def logout_other_sessions(
         timezone.utc
     )
 
-    await db.execute(
+    revoked_ids = (await db.scalars(
         update(AuthSession)
         .where(
             AuthSession.user_id
@@ -1227,9 +1288,12 @@ async def logout_other_sessions(
         .values(
             revoked_at=now
         )
-    )
+        .returning(AuthSession.id)
+    )).all()
 
     await db.commit()
+
+    await manager.close_sessions(current_user.id, revoked_ids)
 
     return Response(
         status_code=status.HTTP_204_NO_CONTENT

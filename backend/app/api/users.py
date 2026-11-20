@@ -23,6 +23,7 @@ from app.models.chat import ChatMember
 from app.models.user import User
 from app.models.user_block import UserBlock
 from app.realtime.manager import manager
+from app.services.media import content_matches
 from app.schemas.user import (
     BlockedUserResponse,
     PrivacySettings,
@@ -383,6 +384,12 @@ async def upload_avatar(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Avatar file is empty",
+        )
+
+    if not content_matches(file.content_type or "", content[:16]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Avatar must be JPEG, PNG, or WebP",
         )
 
     AVATAR_DIR.mkdir(

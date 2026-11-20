@@ -50,6 +50,11 @@ services:
       PUBLIC_APP_URL: ${PUBLIC_APP_URL}
 
       EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS: ${EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS}
+      PASSWORD_RESET_COOLDOWN_SECONDS: ${PASSWORD_RESET_COOLDOWN_SECONDS:-60}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      # Same-origin web app: leave empty in production. Dev example: http://localhost:5173
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
 
 
     volumes:
@@ -57,15 +62,21 @@ services:
       - avatar_data:/app/uploads
       - ./secrets:/run/messenger-secrets:ro
 
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    # The backend is reachable only on the internal Docker network (no published port),
+    # so it trusts the X-Forwarded-For that Caddy sets to the client address it computed.
+    # --ws-max-size caps a single WebSocket frame (call SDP offers are at most 64 KB).
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
+              "--proxy-headers", "--forwarded-allow-ips", "*", "--ws-max-size", "262144"]
 
     depends_on:
       db:
         condition: service_healthy
 
-  frontend:
+  # Production serves a static build (frontend/dist) from Caddy. Rebuild after
+  # frontend changes:  docker compose run --rm frontend-build
+  frontend-build:
     image: node:22-alpine
-    restart: unless-stopped
+    profiles: ["build"]
 
     working_dir: /app
 
@@ -73,6 +84,19 @@ services:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
 
+    command: ["sh", "-c", "npm ci --no-audit --no-fund && npm run build"]
+
+  # Vite development server: development only, never behind the public site. It is not
+  # started by default (profile "dev") and Caddy no longer proxies to it.
+  frontend:
+    image: node:22-alpine
+    profiles: ["dev"]
+
+    working_dir: /app
+
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
 
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 
@@ -98,9 +122,9 @@ services:
 
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./frontend/dist:/srv:ro
 
     depends_on:
-      - frontend
       - backend
 
 volumes:

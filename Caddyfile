@@ -1,20 +1,76 @@
+{
+	servers {
+		# Requests reach Caddy through a local reverse proxy (tailscale serve via the
+		# Docker port mapping), so only private-range peers may supply X-Forwarded-For.
+		# Strict mode takes the right-most untrusted address, which a client cannot forge.
+		# If Caddy is ever exposed directly to the internet, peers are public addresses
+		# and their X-Forwarded-For headers are ignored.
+		trusted_proxies static private_ranges
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
+	}
+}
+
 :80 {
-    handle_path /api/* {
-        reverse_proxy backend:8000
-    }
+	# Security headers for the whole site (the API adds nosniff/no-referrer itself too).
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' wss://{host}; font-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), geolocation=(), microphone=(self)"
+		Cross-Origin-Opener-Policy "same-origin"
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
 
-    handle /ws {
-        reverse_proxy backend:8000
-    }
+	handle_path /api/* {
+		# Body limits per route (same as backend/app/core/body_limit.py, which also
+		# enforces them): uploads get their file size plus multipart overhead,
+		# everything else is small JSON or form data. Caddy answers 413 itself.
+		@video path_regexp ^/chats/[^/]+/messages/video$
+		@image path_regexp ^/chats/[^/]+/messages/image$
+		@avatar path /users/me/avatar
+		@other not path_regexp ^/(chats/[^/]+/messages/(video|image)|users/me/avatar)$
+		request_body @video {
+			max_size 51MiB
+		}
+		request_body @image {
+			max_size 11MiB
+		}
+		request_body @avatar {
+			max_size 6MiB
+		}
+		request_body @other {
+			max_size 256KiB
+		}
+		reverse_proxy backend:8000 {
+			# One trusted value computed above, instead of a client-extendable chain.
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
 
-    handle /downloads/*.apk {
-        reverse_proxy frontend:5173 {
-            header_down Content-Type application/vnd.android.package-archive
-            header_down Content-Disposition attachment
-        }
-    }
+	handle /ws {
+		reverse_proxy backend:8000 {
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
 
-    handle {
-        reverse_proxy frontend:5173
-    }
+	# Static production build of the web app (frontend/dist, see compose.yml).
+	handle {
+		request_body {
+			max_size 64KiB
+		}
+		root * /srv
+
+		@apk path /downloads/*.apk
+		header @apk Content-Type application/vnd.android.package-archive
+		header @apk Content-Disposition attachment
+
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+		try_files {path} /index.html
+		file_server
+	}
 }

@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
 
 from app.core.dependencies import get_current_user
+from app.core.rate_limit import enforce
 from app.database import get_db
 from app.services.blocks import ensure_can_message
+from app.services.media import content_matches, delete_upload
 from app.services.push import deliver_message_push
 from app.models.chat import ChatMember
 from app.models.message import Message
@@ -61,6 +63,10 @@ ALLOWED_MESSAGE_VIDEO_TYPES = {
 }
 
 MAX_MESSAGE_VIDEO_SIZE = 50 * 1024 * 1024
+
+# Messages (text, image or video) one user may send per window, across all chats.
+MESSAGE_RATE_LIMIT = 30
+MESSAGE_RATE_WINDOW_SECONDS = 10
 
 
 async def check_chat_membership(
@@ -240,6 +246,7 @@ async def send_message(
         current_user.id,
     )
     await ensure_can_message(db, chat_id, current_user.id)
+    enforce(f"send-message:user:{current_user.id}", MESSAGE_RATE_LIMIT, MESSAGE_RATE_WINDOW_SECONDS)
 
     replied_message = await get_replied_message(
         db,
@@ -303,6 +310,7 @@ async def send_image_message(
         current_user.id,
     )
     await ensure_can_message(db, chat_id, current_user.id)
+    enforce(f"send-message:user:{current_user.id}", MESSAGE_RATE_LIMIT, MESSAGE_RATE_WINDOW_SECONDS)
 
     extension = ALLOWED_MESSAGE_IMAGE_TYPES.get(
         file.content_type or ""
@@ -328,6 +336,12 @@ async def send_image_message(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Image file is empty",
+        )
+
+    if not content_matches(file.content_type or "", content[:16]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Image must be JPEG, PNG, or WebP",
         )
 
     caption = caption.strip()
@@ -429,6 +443,7 @@ async def send_video_message(
         current_user.id,
     )
     await ensure_can_message(db, chat_id, current_user.id)
+    enforce(f"send-message:user:{current_user.id}", MESSAGE_RATE_LIMIT, MESSAGE_RATE_WINDOW_SECONDS)
 
     extension = ALLOWED_MESSAGE_VIDEO_TYPES.get(
         file.content_type or ""
@@ -472,6 +487,12 @@ async def send_video_message(
     try:
         with video_path.open("wb") as output:
             while chunk := await file.read(1024 * 1024):
+                if total_size == 0 and not content_matches(file.content_type or "", chunk[:16]):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Video must be MP4 or WebM",
+                    )
+
                 total_size += len(chunk)
 
                 if total_size > MAX_MESSAGE_VIDEO_SIZE:
@@ -664,6 +685,14 @@ async def edit_message(
             detail="You can only edit your own messages",
         )
 
+    # Call history entries are written by the server (UUIDv5 ids); their text must not
+    # be rewritten by the caller.
+    if message.id.version == 5:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Call history cannot be edited",
+        )
+
     if message.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -742,6 +771,8 @@ async def delete_message(
     if message.deleted_at is not None:
         return build_message_response(message)
 
+    stored_files = (message.image_url, message.video_url)
+
     message.content = ""
     message.image_url = None
     message.video_url = None
@@ -751,6 +782,10 @@ async def delete_message(
 
     await db.commit()
     await db.refresh(message)
+
+    # The file is served by URL, so it must go too or it stays downloadable.
+    for url in stored_files:
+        delete_upload(url)
 
     message_response = build_message_response(
         message,

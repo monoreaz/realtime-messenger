@@ -5,7 +5,10 @@ from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import decode_access_token
+from datetime import datetime, timezone
+
+from app.core.security import decode_access_claims
+from app.models.auth_session import AuthSession
 from app.database import get_db
 from app.models.user import User
 
@@ -13,6 +16,17 @@ from app.models.user import User
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/auth/login"
 )
+
+
+async def session_is_active(db: AsyncSession, session_id, user_id) -> bool:
+    """The refresh session still exists for this user and is neither revoked nor expired."""
+    session = await db.get(AuthSession, session_id)
+    return (
+        session is not None
+        and session.user_id == user_id
+        and session.revoked_at is None
+        and session.expires_at > datetime.now(timezone.utc)
+    )
 
 
 async def get_current_user(
@@ -28,16 +42,19 @@ async def get_current_user(
     )
 
     try:
-        user_id = decode_access_token(token)
+        claims = decode_access_claims(token)
     except (InvalidTokenError, ValueError):
         raise credentials_exception
 
     user = await db.get(
         User,
-        user_id,
+        claims.user_id,
     )
 
     if user is None:
+        raise credentials_exception
+
+    if claims.session_id is not None and not await session_is_active(db, claims.session_id, user.id):
         raise credentials_exception
 
     if user.is_blocked:

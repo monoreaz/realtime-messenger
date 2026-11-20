@@ -9,6 +9,8 @@ class ConnectionManager:
             uuid.UUID,
             list[WebSocket],
         ] = {}
+        # Refresh session each socket authenticated with (None for legacy tokens).
+        self.socket_sessions: dict[WebSocket, uuid.UUID | None] = {}
 
     def is_online(
         self,
@@ -22,8 +24,10 @@ class ConnectionManager:
         self,
         user_id: uuid.UUID,
         websocket: WebSocket,
+        session_id: uuid.UUID | None = None,
     ) -> bool:
         was_offline = not self.is_online(user_id)
+        self.socket_sessions[websocket] = session_id
 
         connections = self.active_connections.setdefault(
             user_id,
@@ -42,6 +46,8 @@ class ConnectionManager:
         connections = self.active_connections.get(
             user_id
         )
+
+        self.socket_sessions.pop(websocket, None)
 
         if connections is None:
             return False
@@ -90,6 +96,26 @@ class ConnectionManager:
                 user_id,
                 data,
             )
+
+
+    async def close_sessions(
+        self,
+        user_id: uuid.UUID,
+        session_ids=None,
+    ) -> None:
+        """Close the user's sockets that belong to `session_ids` (all sockets when None).
+
+        Called when sessions are revoked, so an open WebSocket cannot outlive its session.
+        The endpoint's finally block then handles presence and active calls.
+        """
+        targets = set(session_ids) if session_ids is not None else None
+        for websocket in list(self.active_connections.get(user_id, [])):
+            if targets is not None and self.socket_sessions.get(websocket) not in targets:
+                continue
+            try:
+                await websocket.close(code=1008)
+            except Exception:
+                pass
 
 
 manager = ConnectionManager()

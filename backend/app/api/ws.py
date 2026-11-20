@@ -20,7 +20,8 @@ from app.models.auth_session import AuthSession
 from app.models.push_device import PushDevice
 from app.services.call_push import can_receive_call_push, deliver_call_push, decode_decline_token
 
-from app.core.security import decode_access_token
+from app.core.dependencies import session_is_active
+from app.core.security import decode_access_claims
 from app.database import AsyncSessionLocal
 from app.models.chat import Chat, ChatMember
 from app.models.user import User
@@ -105,7 +106,8 @@ async def websocket_endpoint(
             )
             return
 
-        user_id = decode_access_token(token)
+        claims = decode_access_claims(token)
+        user_id = claims.user_id
 
     except WebSocketDisconnect:
         return
@@ -126,8 +128,12 @@ async def websocket_endpoint(
             User,
             user_id,
         )
+        session_ok = user is not None and (
+            claims.session_id is None
+            or await session_is_active(db, claims.session_id, user.id)
+        )
 
-    if user is None or user.is_blocked:
+    if user is None or user.is_blocked or not session_ok:
         await websocket.close(
             code=status.WS_1008_POLICY_VIOLATION
         )
@@ -136,6 +142,7 @@ async def websocket_endpoint(
     became_online = manager.connect(
         user.id,
         websocket,
+        claims.session_id,
     )
 
     peer_user_ids = await get_peer_user_ids(
@@ -171,9 +178,18 @@ async def websocket_endpoint(
         while True:
             data = await websocket.receive_json()
 
+            # The socket lives only as long as its token and session: an expired token,
+            # a revoked session or a blocked account ends it (the client reconnects
+            # with a fresh token if it still has a valid session).
             async with AsyncSessionLocal() as db:
                 allowed_user = await db.get(User, user.id)
-                if allowed_user is None or allowed_user.is_blocked:
+                allowed = (
+                    allowed_user is not None
+                    and not allowed_user.is_blocked
+                    and claims.expires_at > datetime.now(timezone.utc)
+                    and (claims.session_id is None or await session_is_active(db, claims.session_id, user.id))
+                )
+                if not allowed:
                     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                     break
 

@@ -1669,9 +1669,31 @@ function App() {
             }
         });
 
-        websocket.addEventListener("close", () => {
+        websocket.addEventListener("close", (event) => {
             if (disposed) return;
             setWsStatus("disconnected");
+            // 1008: the server rejected this token (expired, or its session was revoked).
+            // Reconnecting with the same token cannot work, so renew it first; if the
+            // session itself is gone, sign out. Network errors fall through to a retry.
+            if (event.code === 1008) {
+                refreshSession()
+                    .then((session) => {
+                        if (disposed) return;
+                        setToken(session.access_token);
+                        // Reconnect even if the renewed token happens to be identical.
+                        setSocketAttempt(value => value + 1);
+                    })
+                    .catch((error) => {
+                        if (disposed) return;
+                        if (error instanceof TypeError) {
+                            retryTimer = window.setTimeout(() => setSocketAttempt(value => value + 1), 3000);
+                        } else {
+                            setToken(null);
+                            setUser(null);
+                        }
+                    });
+                return;
+            }
             retryTimer = window.setTimeout(() => setSocketAttempt(value => value + 1), 3000);
         });
 
