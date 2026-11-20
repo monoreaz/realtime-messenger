@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use iced::keyboard::{self, Key, key::Named};
 use iced::widget::{Id, operation, scrollable};
 use iced::{Point, Subscription, Task, window};
@@ -95,6 +95,12 @@ pub struct Main {
     pub me: User,
     pub chats: Vec<Chat>,
     pub online: HashSet<String>,
+    /// Offline peers' last-seen times, only where both sides' privacy settings allow it.
+    pub last_seen: HashMap<String, DateTime<Utc>>,
+    /// Users this account blocked; `None` until loaded.
+    pub blocked: Option<Vec<User>>,
+    /// The user a block/unblock request is in flight for.
+    pub block_busy: Option<String>,
     /// chat id → (user id → last typing signal)
     pub typing: HashMap<String, HashMap<String, Instant>>,
     pub ws_status: WsStatus,
@@ -119,6 +125,29 @@ pub struct Main {
     pub pin_cursor: usize,
     pub pending_jump: Option<String>,
     pub call: Option<crate::call::ActiveCall>,
+}
+
+impl Main {
+    /// The other user of the open private chat.
+    pub fn active_peer(&self) -> Option<&User> {
+        let active = self.active.as_deref()?;
+        self.chats.iter().find(|chat| chat.id == active).filter(|chat| !chat.is_group())?.peer.as_ref()
+    }
+
+    pub fn is_blocked(&self, user_id: &str) -> bool {
+        self.blocked.as_ref().is_some_and(|blocked| blocked.iter().any(|user| user.id == user_id))
+    }
+
+    /// "Online", "Last seen …" or "Offline", with its colour (web `.peer-status`).
+    pub fn presence(&self, user_id: &str) -> (String, iced::Color) {
+        if self.online.contains(user_id) {
+            ("Online".to_owned(), crate::ui::theme::SUCCESS)
+        } else if let Some(at) = self.last_seen.get(user_id) {
+            (crate::format::last_seen(*at, Utc::now()), crate::ui::theme::TEXT_3)
+        } else {
+            ("Offline".to_owned(), crate::ui::theme::TEXT_3)
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -235,6 +264,7 @@ pub enum Message {
     // Realtime
     Ws(ws::Event),
     ChatsLoaded(Result<Vec<Chat>, ApiError>),
+    BlockedLoaded(Result<Vec<User>, ApiError>),
 
     // Navigation
     OpenChat(String),
@@ -284,6 +314,10 @@ pub enum Message {
     PinChanged(Result<ChatMessage, ApiError>),
     AskDelete(ChatMessage),
     Deleted(Result<ChatMessage, ApiError>),
+
+    // Blocking
+    SetBlocked(User, bool),
+    BlockChanged { user: User, block: bool, result: Result<(), ApiError> },
 
     // Media
     MediaVisible(MediaKey),
@@ -403,6 +437,9 @@ impl App {
                 || main.toast.is_some();
             if needs_tick {
                 subscriptions.push(iced::time::every(Duration::from_millis(500)).map(|_| Message::Tick));
+            } else if main.active_peer().is_some_and(|peer| !main.online.contains(&peer.id) && main.last_seen.contains_key(&peer.id)) {
+                // Keeps a relative "Last seen 5 minutes ago" current.
+                subscriptions.push(iced::time::every(Duration::from_secs(30)).map(|_| Message::Tick));
             }
         }
         subscriptions.push(iced::event::listen_with(|event, _, _| {
@@ -556,6 +593,9 @@ impl App {
             me,
             chats: Vec::new(),
             online: HashSet::new(),
+            last_seen: HashMap::new(),
+            blocked: None,
+            block_busy: None,
             typing: HashMap::new(),
             ws_status: WsStatus::Connecting,
             connection: None,
@@ -581,7 +621,12 @@ impl App {
             call: None,
         };
         self.screen = Screen::Main(Box::new(main));
-        self.load_chats()
+        Task::batch([self.load_chats(), self.load_blocked()])
+    }
+
+    fn load_blocked(&self) -> Task<Message> {
+        let client = self.client.clone();
+        Task::perform(async move { client.blocked_users().await }, Message::BlockedLoaded)
     }
 
     fn load_chats(&self) -> Task<Message> {
@@ -755,6 +800,37 @@ impl App {
                 }
                 Err(error) => return self.fail(error),
             },
+            // On failure the list stays empty rather than blocking the UI, as in the web app.
+            Message::BlockedLoaded(result) => main.blocked = Some(result.unwrap_or_default()),
+            Message::SetBlocked(user, block) => {
+                if main.block_busy.is_some() {
+                    return Task::none();
+                }
+                main.block_busy = Some(user.id.clone());
+                return Task::perform(
+                    {
+                        let user_id = user.id.clone();
+                        async move { if block { client.block_user(&user_id).await.map(drop) } else { client.unblock_user(&user_id).await } }
+                    },
+                    move |result| Message::BlockChanged { user: user.clone(), block, result },
+                );
+            }
+            Message::BlockChanged { user, block, result } => {
+                main.block_busy = None;
+                if let Some(dialogs::Dialog::Peer { confirming, .. }) = &mut main.dialog {
+                    *confirming = false;
+                }
+                match result {
+                    Ok(()) => {
+                        let blocked = main.blocked.get_or_insert_with(Vec::new);
+                        blocked.retain(|item| item.id != user.id);
+                        if block {
+                            blocked.insert(0, user);
+                        }
+                    }
+                    Err(error) => return self.fail(error),
+                }
+            }
             Message::OpenChat(chat_id) => return self.open_chat(chat_id),
             Message::CloseChat => {
                 self.stash_draft();
@@ -1460,20 +1536,27 @@ impl App {
             ws::Event::SessionExpired(reason) => return self.session_expired(reason),
             ws::Event::Server(event) => match event {
                 ServerEvent::Ready { .. } | ServerEvent::Pong | ServerEvent::Unknown(_) => {}
-                ServerEvent::PresenceSnapshot { online_user_ids } => main.online = online_user_ids.into_iter().collect(),
+                ServerEvent::PresenceSnapshot { online_user_ids, last_seen } => {
+                    main.online = online_user_ids.into_iter().collect();
+                    main.last_seen = last_seen.into_iter().filter_map(|(user_id, at)| Some((user_id, at?))).collect();
+                }
                 ServerEvent::Online { user_id } => {
                     main.online.insert(user_id);
                 }
-                ServerEvent::Offline { user_id } => {
+                ServerEvent::Offline { user_id, last_seen_at } => {
                     main.online.remove(&user_id);
+                    set_last_seen(main, user_id, last_seen_at);
                 }
-                ServerEvent::PresenceState { user_id, online } => {
+                ServerEvent::PresenceState { user_id, online, last_seen_at } => {
                     if online {
-                        main.online.insert(user_id);
+                        main.online.insert(user_id.clone());
                     } else {
                         main.online.remove(&user_id);
                     }
+                    set_last_seen(main, user_id, last_seen_at);
                 }
+                ServerEvent::LastSeen { user_id, last_seen_at } => set_last_seen(main, user_id, last_seen_at),
+                ServerEvent::BlocksUpdated => return self.load_blocked(),
                 ServerEvent::TypingStart { chat_id, user_id } => {
                     main.typing.entry(chat_id).or_default().insert(user_id, Instant::now());
                 }
@@ -1721,6 +1804,13 @@ fn upsert_chat(chats: &mut Vec<Chat>, chat: Chat) {
 }
 
 /// Applies a new/updated/deleted message to the chat list and cached thread.
+fn set_last_seen(main: &mut Main, user_id: String, at: Option<DateTime<Utc>>) {
+    match at {
+        Some(at) => main.last_seen.insert(user_id, at),
+        None => main.last_seen.remove(&user_id),
+    };
+}
+
 fn apply_message(main: &mut Main, message: ChatMessage, count_unread: bool) {
     if let Some(chat) = main.chats.iter_mut().find(|chat| chat.id == message.chat_id) {
         let newer = chat.last_message.as_ref().is_none_or(|last| (last.created_at, &last.id) <= (message.created_at, &message.id));

@@ -44,6 +44,27 @@ pub fn message_date(at: DateTime<Utc>, now: DateTime<Utc>) -> String {
     }
 }
 
+/// `formatLastSeen` (web `lastSeen.ts`): "Last seen just now", "… 5 minutes ago",
+/// "… today at 14:05", "… yesterday at 09:30", "… 3 Nov" (with the year if not this year).
+pub fn last_seen(at: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    let elapsed = now.signed_duration_since(at).num_seconds();
+    if elapsed < 60 {
+        return "Last seen just now".to_owned();
+    }
+    if elapsed < 60 * 60 {
+        let minutes = elapsed / 60;
+        return format!("Last seen {minutes} {} ago", if minutes == 1 { "minute" } else { "minutes" });
+    }
+    let (date, today) = (local_date(at), local_date(now));
+    if date == today {
+        return format!("Last seen today at {}", time(at));
+    }
+    if today.pred_opt() == Some(date) {
+        return format!("Last seen yesterday at {}", time(at));
+    }
+    if date.year() == today.year() { format!("Last seen {}", date.format("%-d %b")) } else { format!("Last seen {}", date.format("%-d %b %Y")) }
+}
+
 /// `formatSessionDate`.
 pub fn session_date(at: Option<DateTime<Utc>>) -> String {
     match at {
@@ -169,6 +190,18 @@ mod tests {
         assert_eq!(chat_list_time(now - Duration::days(3), now), "Sun");
         assert_eq!(chat_list_time(now - Duration::days(20), now), "29 Oct");
         assert_eq!(chat_list_time(now - Duration::days(400), now), "14 Oct 25");
+    }
+
+    #[test]
+    fn last_seen_wording() {
+        let now = Local.with_ymd_and_hms(2026, 11, 18, 15, 0, 0).unwrap().with_timezone(&Utc);
+        assert_eq!(last_seen(now - Duration::seconds(20), now), "Last seen just now");
+        assert_eq!(last_seen(now - Duration::minutes(1), now), "Last seen 1 minute ago");
+        assert_eq!(last_seen(now - Duration::minutes(42), now), "Last seen 42 minutes ago");
+        assert_eq!(last_seen(now - Duration::hours(3), now), "Last seen today at 12:00");
+        assert_eq!(last_seen(now - Duration::hours(20), now), "Last seen yesterday at 19:00");
+        assert_eq!(last_seen(now - Duration::days(15), now), "Last seen 3 Nov");
+        assert_eq!(last_seen(now - Duration::days(400), now), "Last seen 14 Oct 2025");
     }
 
     #[test]

@@ -409,6 +409,31 @@ impl Client {
     }
 
     // ----------------------------------------------------------------------------
+    // Privacy and blocking
+    // ----------------------------------------------------------------------------
+
+    pub async fn privacy(&self) -> Result<Privacy> {
+        self.get_json("/users/me/privacy", "Could not load privacy settings").await
+    }
+
+    pub async fn update_privacy(&self, privacy: &Privacy) -> Result<Privacy> {
+        self.send_json(Method::PATCH, "/users/me/privacy", Some(privacy), "Could not save privacy settings").await
+    }
+
+    /// Users the current user blocked, newest first.
+    pub async fn blocked_users(&self) -> Result<Vec<User>> {
+        self.get_json("/users/me/blocked", "Could not load blocked users").await
+    }
+
+    pub async fn block_user(&self, user_id: &str) -> Result<User> {
+        self.send_json::<(), _>(Method::PUT, &format!("/users/me/blocked/{user_id}"), None, "Could not block this user").await
+    }
+
+    pub async fn unblock_user(&self, user_id: &str) -> Result<()> {
+        self.send_empty(Method::DELETE, &format!("/users/me/blocked/{user_id}"), "Could not unblock this user").await
+    }
+
+    // ----------------------------------------------------------------------------
     // Users & chats
     // ----------------------------------------------------------------------------
 

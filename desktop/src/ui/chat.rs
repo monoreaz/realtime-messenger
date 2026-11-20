@@ -81,8 +81,7 @@ fn header<'a>(main: &'a Main, chat: &'a Chat, ctx: Ctx<'a>, narrow: bool, corner
             let online = main.online.contains(&peer.id);
             let (status, color) = match &typing {
                 Some(text) => (text.clone(), theme::ACCENT),
-                None if online => ("Online".to_owned(), theme::SUCCESS),
-                None => ("Offline".to_owned(), theme::TEXT_3),
+                None => main.presence(&peer.id),
             };
             (widgets::avatar(ctx, peer, 42.0, online), peer.name(), status, color, Message::OpenDialog(Open::PeerProfile(peer.clone())))
         }
@@ -100,7 +99,8 @@ fn header<'a>(main: &'a Main, chat: &'a Chat, ctx: Ctx<'a>, narrow: bool, corner
         .on_press(open);
     bar = bar.push(identity).push(hspace());
     if let Some(peer) = chat.peer.as_ref().filter(|_| !chat.is_group()) {
-        let can_call = main.ws_status == WsStatus::Connected && main.call.is_none();
+        let blocked = main.is_blocked(&peer.id);
+        let can_call = main.ws_status == WsStatus::Connected && main.call.is_none() && !blocked;
         let call = iced::widget::tooltip(
             button(container(widgets::icon(Icon::Phone, 19.0, if can_call { theme::TEXT_2 } else { theme::white(0.36) })).center(38))
                 .padding(0)
@@ -108,7 +108,7 @@ fn header<'a>(main: &'a Main, chat: &'a Chat, ctx: Ctx<'a>, narrow: bool, corner
                 .height(40)
                 .style(theme::outline_button(12.0))
                 .on_press_maybe(can_call.then(|| Message::StartCall(peer.id.clone(), peer.name().to_owned()))),
-            container(label("Start audio call", theme::TEXT_XS, theme::TEXT_1)).padding([5, 9]).style(theme::menu),
+            container(label(if blocked { "Unblock this user to call" } else { "Start audio call" }, theme::TEXT_XS, theme::TEXT_1)).padding([5, 9]).style(theme::menu),
             iced::widget::tooltip::Position::Bottom,
         );
         bar = bar.push(call);
@@ -429,6 +429,10 @@ fn call_card<'a>(message: &'a ChatMessage, own: bool) -> Element<'a, Message> {
 }
 
 fn composer<'a>(main: &'a Main, chat: &'a Chat, width: f32) -> Element<'a, Message> {
+    let side = (width * 0.04).clamp(12.0, 56.0);
+    if let Some(peer) = chat.peer.as_ref().filter(|peer| !chat.is_group() && main.is_blocked(&peer.id)) {
+        return container(blocked_composer(main, peer)).padding(widgets::padding(8.0, side, 18.0, side)).width(Length::Fill).into();
+    }
     let composer = &main.composer;
     let mut previews = column![].spacing(6);
     let preview = |glyph: Icon, title: String, detail: String, cancel: Message| -> Element<'a, Message> {
@@ -508,9 +512,24 @@ fn composer<'a>(main: &'a Main, chat: &'a Chat, width: f32) -> Element<'a, Messa
             .style(theme::send_button)
             .on_press_maybe(can_send.then_some(Message::ComposerSubmit)),
     );
-    let side = (width * 0.04).clamp(12.0, 56.0);
     let form = container(form).padding(6).style(theme::composer(false));
     container(column![previews, form].spacing(6)).padding(widgets::padding(8.0, side, 18.0, side)).width(Length::Fill).into()
+}
+
+/// Web `.blocked-composer`: replaces the composer in a chat with a blocked user.
+fn blocked_composer<'a>(main: &'a Main, peer: &'a User) -> Element<'a, Message> {
+    let busy = main.block_busy.is_some();
+    let unblock = button(label(if main.block_busy.as_deref() == Some(peer.id.as_str()) { "Unblocking..." } else { "Unblock" }, theme::TEXT_SM, theme::ACCENT).font(theme::MEDIUM))
+        .padding([8, 14])
+        .style(theme::accent_outline_button)
+        .on_press_maybe((!busy).then(|| Message::SetBlocked(peer.clone(), false)));
+    container(row![label(format!("You blocked {}.", peer.name()), theme::TEXT_SM, theme::TEXT_2).width(Length::Shrink), unblock].spacing(14).align_y(Alignment::Center))
+        .center_x(Length::Fill)
+        .height(Length::Fixed(54.0))
+        .align_y(Alignment::Center)
+        .padding([8, 16])
+        .style(theme::blocked_composer)
+        .into()
 }
 
 /// Right-click menu for a message, positioned at the cursor (clamped to the window).

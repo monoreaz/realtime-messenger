@@ -83,6 +83,8 @@ Legend: ✅ implemented (compiles; logic unit-tested where noted) · 🔶 partia
 - ✅ Read receipts (✓ / ✓✓ from `peer_last_read_at`), mark-read when visible & focused
 - ✅ Typing indicators (send throttled 3 s, stop after 4 s idle; receive with 6 s expiry)
 - ✅ Online/offline presence (snapshot, online/offline events, presence.get on open)
+- ✅ Last seen ("Last seen 5 minutes ago" in header and profile; presence.last_seen; 30 s refresh tick)
+- ✅ Blocking: block/unblock from the peer profile (with confirmation), blocked composer bar, call disabled, blocks.updated
 - ✅ Images: send (file dialog, Ctrl+V paste), inline preview (lazy), viewer with zoom/pan, prev/next, save as
 - 🔶 Videos: send ✅, open in system player ✅, inline playback ❌ (no decoder)
 - ✅ Call history cards
@@ -99,7 +101,7 @@ Legend: ✅ implemented (compiles; logic unit-tested where noted) · 🔶 partia
 - ✅ Profile: display name, username, bio (160), avatar upload/remove
 - ✅ Security: change password (signs out everywhere, as the server does)
 - ✅ Active sessions: list, revoke, log out all others
-- ✅ Privacy page (same "coming later" placeholders as web)
+- ✅ Privacy page: last seen Everyone/Nobody, blocked users list with Unblock (other options "coming later" as on web)
 - ✅ Application (desktop): notifications, previews, auto-update, server, version
 
 ### Admin
@@ -170,6 +172,8 @@ desktop/scripts/remote-cargo.sh check --target x86_64-pc-windows-msvc
 The script rsyncs `desktop/` to messenger-01 and runs cargo in Docker (capped 3 CPUs / 5 GB).
 
 ## Known issues / limitations
+- iced feature `web-colors` must stay enabled: without it wgpu blends translucent fills in linear space
+  (much brighter than the browser). tiny-skia screenshots don't show the difference.
 - Not yet run on Windows itself.
 - iced 0.14 bugs avoided: keyed_column state corruption (use column); tiny-skia partial repaint
   artifacts (seen headless; affects the CPU fallback renderer only).

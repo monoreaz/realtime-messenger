@@ -269,6 +269,13 @@ pub struct AdminUsersPage {
     pub total: u64,
 }
 
+/// `GET/PATCH /users/me/privacy`. `last_seen` is "everyone" or "nobody"; hiding your own
+/// last seen also hides everyone else's from you.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Privacy {
+    pub last_seen: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProfileUpdate {
     pub username: String,

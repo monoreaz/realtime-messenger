@@ -7,7 +7,7 @@ use std::time::Duration;
 use futures::{Stream, StreamExt};
 
 use crate::api::Client;
-use crate::api::models::{GroupDetails, ProfileUpdate};
+use crate::api::models::{GroupDetails, Privacy, ProfileUpdate};
 use crate::api::ws::{self, Connection, Event, ServerEvent};
 use crate::storage::{Dirs, SessionStore};
 
@@ -215,6 +215,32 @@ async fn end_to_end_against_backend() {
     bob.send_message(&group.id, "hello group", None).await.unwrap();
     wait_for(&mut carol_events, "group message", |event| matches!(event, Event::Server(ServerEvent::MessageNew { message }) if message.chat_id == group.id).then_some(())).await;
 
+    // --- Last seen privacy: hiding it is announced to peers as presence.last_seen.
+    assert_eq!(alice.privacy().await.unwrap().last_seen, "everyone");
+    let hidden = bob.update_privacy(&Privacy { last_seen: "nobody".into() }).await.unwrap();
+    assert_eq!(hidden.last_seen, "nobody");
+    wait_for(&mut alice_events, "presence.last_seen", |event| {
+        matches!(event, Event::Server(ServerEvent::LastSeen { user_id, last_seen_at: None }) if *user_id == bob_user.id).then_some(())
+    })
+    .await;
+    bob.update_privacy(&Privacy { last_seen: "everyone".into() }).await.unwrap();
+    assert!(bob.update_privacy(&Privacy { last_seen: "friends".into() }).await.is_err());
+
+    // --- Blocking: both directions are cut off in the private chat until unblocked.
+    assert!(alice.blocked_users().await.unwrap().is_empty());
+    let blocked = alice.block_user(&bob_user.id).await.unwrap();
+    assert_eq!(blocked.id, bob_user.id);
+    wait_for(&mut alice_events, "blocks.updated", |event| matches!(event, Event::Server(ServerEvent::BlocksUpdated)).then_some(())).await;
+    assert_eq!(alice.blocked_users().await.unwrap().iter().map(|user| user.id.as_str()).collect::<Vec<_>>(), [bob_user.id.as_str()]);
+    let own = alice.send_message(&chat.id, "blocked?", None).await.unwrap_err();
+    assert_eq!(own.status, Some(403));
+    assert!(own.message.contains("Unblock"), "{}", own.message);
+    assert_eq!(bob.send_message(&chat.id, "hi?", None).await.unwrap_err().status, Some(403));
+    assert!(bob.blocked_users().await.unwrap().is_empty(), "only the blocker sees the block");
+    alice.unblock_user(&bob_user.id).await.unwrap();
+    assert!(alice.blocked_users().await.unwrap().is_empty());
+    alice.send_message(&chat.id, "unblocked", None).await.unwrap();
+
     // --- Sessions.
     let sessions = alice.sessions().await.unwrap();
     assert!(sessions.iter().any(|session| session.current));
@@ -286,6 +312,9 @@ async fn seed_demo_data() {
     std::fs::write(&clip, b"not really a video, just bytes for layout tests").unwrap();
     alice.send_media(&chat.id, &clip, "", None).await.unwrap();
     carol.mark_read(&chat.id).await.unwrap();
+    // Connecting once records carol's last seen, so alice sees "Last seen …" for her.
+    let mut carol_events = events(&carol);
+    connect(&mut carol_events).await;
     let _ = carol_user;
 }
 

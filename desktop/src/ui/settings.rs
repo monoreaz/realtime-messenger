@@ -9,7 +9,7 @@ use iced::{Alignment, Element, Length, Task};
 use super::icons::Icon;
 use super::theme;
 use super::widgets::{self, Ctx, field_label, gap, hspace, label, modal, strong};
-use crate::api::models::{ProfileUpdate, SessionInfo, User};
+use crate::api::models::{Privacy, ProfileUpdate, SessionInfo, User};
 use crate::api::{ApiError, Client};
 use crate::app::{Main, Message};
 use crate::dialogs::{Context, Msg as DialogMsg, Outcome};
@@ -40,6 +40,9 @@ pub struct State {
     pub sessions_loading: bool,
     pub session_action: Option<String>,
     pub logging_out_others: bool,
+    /// "everyone" / "nobody"; `None` until loaded.
+    pub last_seen: Option<String>,
+    pub privacy_saving: bool,
     pub server: String,
     pub error: Option<String>,
     pub notice: Option<String>,
@@ -68,6 +71,10 @@ pub enum Msg {
     Revoked(String, Result<(), ApiError>),
     LogoutOthers,
     LoggedOutOthers(Result<(), ApiError>),
+    PrivacyLoaded(Result<Privacy, ApiError>),
+    SetLastSeen(String),
+    /// Carries the previous value, restored if saving fails.
+    PrivacySaved(Option<String>, Result<Privacy, ApiError>),
     Notifications(bool),
     Previews(bool),
     AutoUpdate(bool),
@@ -96,6 +103,8 @@ impl State {
             sessions_loading: false,
             session_action: None,
             logging_out_others: false,
+            last_seen: None,
+            privacy_saving: false,
             server: settings.server.clone(),
             error: None,
             notice: None,
@@ -119,6 +128,13 @@ impl State {
                 self.notice = None;
                 if tab == Tab::Sessions {
                     return self.load_sessions(&client);
+                }
+                if tab == Tab::Privacy {
+                    let blocked = client.clone();
+                    return Outcome::Task(Task::batch([
+                        Task::perform(async move { client.privacy().await }, |result| wrap(Msg::PrivacyLoaded(result))),
+                        Task::perform(async move { blocked.blocked_users().await }, Message::BlockedLoaded),
+                    ]));
                 }
             }
             Msg::DisplayName(value) => self.display_name = value.chars().take(64).collect(),
@@ -267,6 +283,36 @@ impl State {
                     Err(error) => self.error = Some(error.message),
                 }
             }
+            Msg::PrivacyLoaded(result) => match result {
+                Ok(privacy) => self.last_seen = Some(privacy.last_seen),
+                Err(error) => self.error = Some(error.message),
+            },
+            Msg::SetLastSeen(value) => {
+                if self.privacy_saving || self.last_seen.is_none() || self.last_seen.as_deref() == Some(value.as_str()) {
+                    return Outcome::None;
+                }
+                let previous = self.last_seen.replace(value.clone());
+                self.privacy_saving = true;
+                self.error = None;
+                self.notice = None;
+                let privacy = Privacy { last_seen: value };
+                return Outcome::Task(Task::perform(async move { client.update_privacy(&privacy).await }, move |result| {
+                    wrap(Msg::PrivacySaved(previous.clone(), result))
+                }));
+            }
+            Msg::PrivacySaved(previous, result) => {
+                self.privacy_saving = false;
+                match result {
+                    Ok(privacy) => {
+                        self.last_seen = Some(privacy.last_seen);
+                        self.notice = Some("Privacy settings saved".into());
+                    }
+                    Err(error) => {
+                        self.last_seen = previous;
+                        self.error = Some(error.message);
+                    }
+                }
+            }
             Msg::Notifications(enabled) => {
                 context.settings.notifications = enabled;
                 context.settings.save(context.dirs);
@@ -351,7 +397,7 @@ pub fn view<'a>(state: &'a State, main: &'a Main, ctx: Ctx<'a>, app: &'a crate::
         Tab::Profile => profile(state, main, ctx),
         Tab::Security => security(state),
         Tab::Sessions => sessions(state),
-        Tab::Privacy => privacy(),
+        Tab::Privacy => privacy(state, main, ctx),
         Tab::Application => application(state, app),
     };
 
@@ -508,22 +554,94 @@ fn sessions<'a>(state: &'a State) -> Element<'a, Message> {
     page.into()
 }
 
-fn privacy<'a>() -> Element<'a, Message> {
-    let option = |title: &'a str, detail: &'a str| -> Element<'a, Message> {
-        container(row![column![strong(title, theme::TEXT_MD, theme::TEXT_2), label(detail, theme::TEXT_SM, theme::TEXT_3)].spacing(3), hspace(), coming_later()].align_y(Alignment::Center))
-            .padding(16)
-            .width(Length::Fill)
-            .style(theme::card)
+fn privacy<'a>(state: &'a State, main: &'a Main, ctx: Ctx<'a>) -> Element<'a, Message> {
+    let option = |title: &'a str, detail: &'a str, control: Element<'a, Message>, enabled: bool| -> Element<'a, Message> {
+        container(
+            row![
+                column![strong(title, theme::TEXT_MD, if enabled { theme::TEXT_1 } else { theme::TEXT_2 }).font(theme::MEDIUM), label(detail, 12.5, theme::TEXT_3)].spacing(2).width(Length::Fill),
+                control
+            ]
+            .spacing(16)
+            .align_y(Alignment::Center),
+        )
+        .padding([14, 16])
+        .width(Length::Fill)
+        .into()
+    };
+    let choice = |value: &'static str, name: &'a str| -> Element<'a, Message> {
+        let active = state.last_seen.as_deref() == Some(value);
+        let enabled = state.last_seen.is_some() && !state.privacy_saving;
+        let color = if active { theme::ACCENT } else if enabled { theme::TEXT_2 } else { iced::Color { a: 0.6, ..theme::TEXT_2 } };
+        button(container(label(name, theme::TEXT_SM, color).font(theme::MEDIUM)).center_y(30))
+            .padding([0, 14])
+            .style(theme::segment(active))
+            .on_press_maybe(enabled.then(|| wrap(Msg::SetLastSeen(value.to_owned()))))
             .into()
     };
+    let last_seen_detail = if state.last_seen.as_deref() == Some("nobody") {
+        "Hidden. You also won't see when others were last online."
+    } else {
+        "People you chat with can see when you were last online."
+    };
+    let options = column![
+        option("Last seen", last_seen_detail, container(row![choice("everyone", "Everyone"), choice("nobody", "Nobody")].spacing(2)).padding(3).style(theme::segmented).into(), true),
+        widgets::divider(),
+        option("Online status", "Control who can see when you are online.", coming_later(), false),
+        widgets::divider(),
+        option("Read receipts", "Choose whether other users can see when you read their messages.", coming_later(), false),
+        widgets::divider(),
+        option("Profile photo", "Choose who can see your profile picture.", coming_later(), false),
+    ];
+
+    let blocked: Element<'a, Message> = match &main.blocked {
+        None => label("Loading blocked users...", theme::TEXT_SM, theme::TEXT_3).into(),
+        Some(users) if users.is_empty() => label("You haven't blocked anyone.", theme::TEXT_SM, theme::TEXT_3).into(),
+        Some(users) => {
+            let mut list = column![];
+            for (index, user) in users.iter().enumerate() {
+                if index > 0 {
+                    list = list.push(widgets::divider());
+                }
+                let busy = main.block_busy.is_some();
+                let unblock = button(label(if main.block_busy.as_deref() == Some(user.id.as_str()) { "Unblocking..." } else { "Unblock" }, theme::TEXT_SM, theme::ACCENT).font(theme::MEDIUM))
+                    .padding([8, 14])
+                    .style(theme::accent_outline_button)
+                    .on_press_maybe((!busy).then(|| Message::SetBlocked(user.clone(), false)));
+                list = list.push(
+                    container(
+                        row![
+                            widgets::avatar(ctx, user, 36.0, false),
+                            column![strong(user.name(), theme::TEXT_MD, theme::TEXT_1).font(theme::MEDIUM), label(format!("@{}", user.username), theme::TEXT_SM, theme::TEXT_3)].spacing(1).width(Length::Fill),
+                            unblock,
+                        ]
+                        .spacing(12)
+                        .align_y(Alignment::Center),
+                    )
+                    .padding([10, 16]),
+                );
+            }
+            container(list).width(Length::Fill).style(theme::panel).into()
+        }
+    };
+
     column![
         page_header("Privacy", "Control what other users can see and how they can interact with you."),
         gap(6.0),
-        option("Last seen", "Choose who can see when you were last online."),
-        option("Online status", "Control who can see when you are online."),
-        option("Read receipts", "Choose whether other users can see when you read their messages."),
-        option("Profile photo", "Choose who can see your profile picture."),
-        option("Blocked users", "Manage people you do not want to receive messages from."),
+        messages(state),
+        container(options).width(Length::Fill).style(theme::panel),
+        gap(12.0),
+        column![
+            strong("Blocked users", theme::TEXT_MD, theme::TEXT_1).font(theme::MEDIUM),
+            label(
+                "Blocked users can't message or call you, and you won't see each other's online status or last seen. To block someone, open their profile in a chat.",
+                12.5,
+                theme::TEXT_3
+            )
+            .width(Length::Fill),
+        ]
+        .spacing(2)
+        .width(Length::Fill),
+        blocked,
     ]
     .spacing(10)
     .into()

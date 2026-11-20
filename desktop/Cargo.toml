@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 iced = { version = "0.14.0", default-features = false, features = [
     "wgpu", "tiny-skia", "crisp", "thread-pool", "x11", "wayland",
-    "tokio", "image", "svg", "advanced", "lazy",
+    "tokio", "image", "svg", "advanced", "lazy", "web-colors",
 ] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time", "sync", "io-util"] }
 reqwest = { version = "0.13", default-features = false, features = [

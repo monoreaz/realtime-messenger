@@ -435,6 +435,60 @@ pub fn outline_button(radius: f32) -> impl Fn(&Theme, button::Status) -> button:
     }
 }
 
+/// Web `.blocked-composer button`: accent text on a hairline outline.
+pub fn accent_outline_button(_: &Theme, status: button::Status) -> button::Style {
+    let background = matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(ACCENT_SOFT);
+    let text = if status == button::Status::Disabled { Color { a: 0.5, ..ACCENT } } else { ACCENT };
+    button::Style { border: Border { color: LINE, width: 1.0, radius: RADIUS_SM.into() }, ..base_button(background, text, RADIUS_SM) }
+}
+
+/// Web `.peer-block-button` (and the buttons of its confirmation): outlined, red when `danger`.
+pub fn block_button(danger: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let background = hovered.then_some(if danger { DANGER_SOFT } else { SURFACE_2 });
+        let border = if danger { rgba(255, 120, 115, 0.22) } else { LINE };
+        let text = if danger { DANGER } else { TEXT_2 };
+        let text = if status == button::Status::Disabled { Color { a: 0.5, ..text } } else { text };
+        button::Style { border: Border { color: border, width: 1.0, radius: RADIUS_SM.into() }, ..base_button(background, text, RADIUS_SM) }
+    }
+}
+
+/// Web `.privacy-choice`: the pill holding the segmented choice buttons.
+pub fn segmented(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(SURFACE_2.into()),
+        border: Border { color: LINE, width: 1.0, radius: 999.0.into() },
+        ..container::Style::default()
+    }
+}
+
+/// Web `.privacy-choice button`.
+pub fn segment(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let (background, text) = match status {
+            _ if active => (Some(rgba(182, 204, 255, 0.2)), ACCENT),
+            button::Status::Hovered | button::Status::Pressed => (Some(SURFACE_3), TEXT_1),
+            button::Status::Disabled => (None, Color { a: 0.6, ..TEXT_2 }),
+            button::Status::Active => (None, TEXT_2),
+        };
+        base_button(background, text, 999.0)
+    }
+}
+
+/// Web `.privacy-options` / `.blocked-users-list` / `.blocked-composer`: a 16px-radius panel.
+pub fn panel(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(SURFACE_1.into()),
+        border: Border { color: LINE, width: 1.0, radius: 16.0.into() },
+        ..container::Style::default()
+    }
+}
+
+pub fn blocked_composer(theme: &Theme) -> container::Style {
+    panel(theme)
+}
+
 pub fn chat_item(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let background = if active {

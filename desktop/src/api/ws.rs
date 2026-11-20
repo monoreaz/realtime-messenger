@@ -6,6 +6,7 @@
 //! `call.*` signalling. The connection reconnects with exponential backoff and
 //! refreshes the access token when the server rejects it (close code 1008).
 
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
@@ -32,14 +33,38 @@ const MAX_BACKOFF_SECS: u64 = 30;
 pub enum ServerEvent {
     #[serde(rename = "connection.ready")]
     Ready { user_id: String },
+    /// `last_seen` holds only the offline peers whose last seen this user may see.
     #[serde(rename = "presence.snapshot")]
-    PresenceSnapshot { online_user_ids: Vec<String> },
+    PresenceSnapshot {
+        online_user_ids: Vec<String>,
+        #[serde(default)]
+        last_seen: HashMap<String, Option<DateTime<Utc>>>,
+    },
     #[serde(rename = "presence.online")]
     Online { user_id: String },
     #[serde(rename = "presence.offline")]
-    Offline { user_id: String },
+    Offline {
+        user_id: String,
+        #[serde(default)]
+        last_seen_at: Option<DateTime<Utc>>,
+    },
     #[serde(rename = "presence.state")]
-    PresenceState { user_id: String, online: bool },
+    PresenceState {
+        user_id: String,
+        online: bool,
+        #[serde(default)]
+        last_seen_at: Option<DateTime<Utc>>,
+    },
+    /// A peer's last seen became visible (`Some`) or hidden (`None`) after a privacy change.
+    #[serde(rename = "presence.last_seen")]
+    LastSeen {
+        user_id: String,
+        #[serde(default)]
+        last_seen_at: Option<DateTime<Utc>>,
+    },
+    /// This user's block list changed (possibly from another device).
+    #[serde(rename = "blocks.updated")]
+    BlocksUpdated,
     #[serde(rename = "typing.start")]
     TypingStart { chat_id: String, user_id: String },
     #[serde(rename = "typing.stop")]
@@ -282,5 +307,19 @@ mod tests {
 
         assert!(ServerEvent::parse("not json").is_none());
         assert!(matches!(ServerEvent::parse(r#"{"type":"account.blocked"}"#), Some(ServerEvent::AccountBlocked)));
+    }
+
+    #[test]
+    fn parses_last_seen_and_blocks() {
+        let snapshot = ServerEvent::parse(r#"{"type":"presence.snapshot","online_user_ids":["a"],"last_seen":{"b":"2026-11-20T10:00:00+00:00"}}"#).unwrap();
+        assert!(matches!(snapshot, ServerEvent::PresenceSnapshot { ref last_seen, .. } if last_seen["b"].is_some()));
+        // Older servers send neither field.
+        let old = ServerEvent::parse(r#"{"type":"presence.snapshot","online_user_ids":[]}"#).unwrap();
+        assert!(matches!(old, ServerEvent::PresenceSnapshot { ref last_seen, .. } if last_seen.is_empty()));
+        let offline = ServerEvent::parse(r#"{"type":"presence.offline","user_id":"b","last_seen_at":null}"#).unwrap();
+        assert!(matches!(offline, ServerEvent::Offline { last_seen_at: None, .. }));
+        let hidden = ServerEvent::parse(r#"{"type":"presence.last_seen","user_id":"b","last_seen_at":"2026-11-20T10:00:00Z"}"#).unwrap();
+        assert!(matches!(hidden, ServerEvent::LastSeen { last_seen_at: Some(_), .. }));
+        assert!(matches!(ServerEvent::parse(r#"{"type":"blocks.updated"}"#), Some(ServerEvent::BlocksUpdated)));
     }
 }

@@ -19,7 +19,8 @@ pub enum Dialog {
     ConfirmDelete { message: ChatMessage, busy: bool },
     Viewer(Viewer),
     Settings(Box<settings_ui::State>),
-    Peer(User),
+    /// `confirming`: the "Block user?" confirmation is showing.
+    Peer { user: User, confirming: bool },
     Group(GroupProfile),
     CreateGroup(CreateGroup),
     Pinned { chat_id: String },
@@ -62,6 +63,7 @@ pub enum Msg {
     OpenMember(User),
     BackToGroup,
     Pinned(String),
+    ConfirmBlock(bool),
 }
 
 pub enum Outcome {
@@ -94,7 +96,7 @@ pub fn open(open: Open, main: &Main, client: &Client, settings: &Settings, updat
             let (state, task) = settings_ui::State::new(&main.me, settings, client);
             (Dialog::Settings(Box::new(state)), task.map(|msg| Message::Dialog(Msg::Settings(msg))))
         }
-        Open::PeerProfile(user) => (Dialog::Peer(user), Task::none()),
+        Open::PeerProfile(user) => (Dialog::Peer { user, confirming: false }, Task::none()),
         Open::GroupProfile(chat_id) => (Dialog::Group(GroupProfile::new(chat_id)), Task::none()),
         Open::CreateGroup => (Dialog::CreateGroup(CreateGroup::default()), iced::widget::operation::focus(iced::widget::Id::from("group-name"))),
         Open::Pinned(chat_id) => (Dialog::Pinned { chat_id }, Task::none()),
@@ -130,6 +132,10 @@ impl Dialog {
             }
             (Dialog::Settings(state), Msg::Settings(msg)) => state.update(msg, context),
             (Dialog::Group(state), Msg::Group(msg)) => state.update(msg, context),
+            (Dialog::Peer { confirming, .. }, Msg::ConfirmBlock(show)) => {
+                *confirming = show;
+                Outcome::None
+            }
             (Dialog::Group(state), Msg::OpenMember(user)) => {
                 state.member = Some(user);
                 Outcome::None
@@ -569,7 +575,7 @@ pub fn view<'a>(dialog: &'a Dialog, main: &'a Main, ctx: Ctx<'a>, app: &'a crate
         Dialog::ConfirmDelete { busy, .. } => confirm_delete(*busy),
         Dialog::Viewer(viewer) => image_viewer(viewer, ctx),
         Dialog::Settings(state) => settings_ui::view(state, main, ctx, app),
-        Dialog::Peer(user) => peer_profile(user, ctx, main.online.contains(&user.id), close()),
+        Dialog::Peer { user, confirming } => peer_profile(user, ctx, main, Some(*confirming), close()),
         Dialog::Group(state) => match main.chats.iter().find(|chat| chat.id == state.chat_id) {
             Some(chat) => group_profile(state, chat, main, ctx),
             None => modal(text("This group is no longer available.").into(), 380.0, close()),
@@ -627,14 +633,17 @@ fn image_viewer<'a>(viewer: &'a Viewer, ctx: Ctx<'a>) -> Element<'a, Message> {
     container(column![top, middle].spacing(12)).padding(18).width(Length::Fill).height(Length::Fill).style(theme::image_viewer).into()
 }
 
-pub fn peer_profile<'a>(user: &'a User, ctx: Ctx<'a>, online: bool, on_close: Option<Message>) -> Element<'a, Message> {
+/// `block`: `Some(confirming)` shows the block controls (web `PeerProfileDialog`).
+pub fn peer_profile<'a>(user: &'a User, ctx: Ctx<'a>, main: &'a Main, block: Option<bool>, on_close: Option<Message>) -> Element<'a, Message> {
     let bio = user.bio.as_deref().map(str::trim).filter(|bio| !bio.is_empty()).unwrap_or("No bio yet");
-    let content = column![
+    let online = main.online.contains(&user.id);
+    let (status, status_color) = main.presence(&user.id);
+    let mut content = column![
         row![hspace(), widgets::icon_button(Icon::Close, on_close.clone(), 34.0)],
         container(widgets::avatar(ctx, user, 96.0, online)).center_x(Length::Fill),
         gap(6.0),
         container(text(user.name()).size(theme::TEXT_XL).font(theme::SEMIBOLD)).center_x(Length::Fill),
-        container(label(if online { "Online" } else { "Offline" }, theme::TEXT_SM, if online { theme::SUCCESS } else { theme::TEXT_3 })).center_x(Length::Fill),
+        container(label(status, theme::TEXT_SM, status_color)).center_x(Length::Fill),
         gap(10.0),
         container(
             column![
@@ -648,12 +657,58 @@ pub fn peer_profile<'a>(user: &'a User, ctx: Ctx<'a>, online: bool, on_close: Op
         .style(theme::card),
     ]
     .spacing(4);
+    if let Some(confirming) = block {
+        content = content.push(gap(10.0)).push(block_controls(user, main, confirming));
+    }
     modal(content.into(), 360.0, on_close)
+}
+
+fn block_controls<'a>(user: &'a User, main: &'a Main, confirming: bool) -> Element<'a, Message> {
+    let busy = main.block_busy.is_some();
+    let blocked = main.is_blocked(&user.id);
+    let outline = |name: &'a str, danger: bool, on_press: Option<Message>| {
+        button(container(label(name, theme::TEXT_SM, if danger { theme::DANGER } else { theme::TEXT_2 }).font(theme::MEDIUM)).center_y(36))
+            .padding([0, 16])
+            .style(theme::block_button(danger))
+            .on_press_maybe(on_press)
+    };
+    if confirming && !blocked {
+        let text = format!("Block {}? They won't be able to message or call you, and you won't see each other's online status.", user.name());
+        return container(
+            column![
+                label(text, theme::TEXT_SM, theme::TEXT_2),
+                row![
+                    hspace(),
+                    outline("Cancel", false, (!busy).then_some(dmsg(Msg::ConfirmBlock(false)))),
+                    outline(if busy { "Blocking..." } else { "Block" }, true, (!busy).then(|| Message::SetBlocked(user.clone(), true))),
+                ]
+                .spacing(8),
+            ]
+            .spacing(12),
+        )
+        .padding(14)
+        .width(Length::Fill)
+        .style(theme::panel)
+        .into();
+    }
+    let (name, on_press) = if blocked {
+        (if busy { "Unblocking..." } else { "Unblock user" }, Message::SetBlocked(user.clone(), false))
+    } else {
+        ("Block user", dmsg(Msg::ConfirmBlock(true)))
+    };
+    let danger = !blocked;
+    button(container(label(name, theme::TEXT_SM, if danger { theme::DANGER } else { theme::TEXT_2 }).font(theme::MEDIUM)).center_x(Length::Fill).center_y(38))
+        .padding([0, 16])
+        .width(Length::Fill)
+        .style(theme::block_button(danger))
+        .on_press_maybe((!busy).then_some(on_press))
+        .into()
 }
 
 fn group_profile<'a>(state: &'a GroupProfile, chat: &'a Chat, main: &'a Main, ctx: Ctx<'a>) -> Element<'a, Message> {
     if let Some(user) = &state.member {
-        return peer_profile(user, ctx, main.online.contains(&user.id), Some(dmsg(Msg::BackToGroup)));
+        // Like the web, group member profiles have no block controls.
+        return peer_profile(user, ctx, main, None, Some(dmsg(Msg::BackToGroup)));
     }
     if let Some(moderation) = &state.moderate {
         let body: Element<'a, Message> = if moderation.blocked {
