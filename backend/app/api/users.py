@@ -12,7 +12,8 @@ from fastapi import (
     status,
 )
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,10 +21,18 @@ from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models.chat import ChatMember
 from app.models.user import User
+from app.models.user_block import UserBlock
 from app.realtime.manager import manager
 from app.schemas.user import (
+    BlockedUserResponse,
+    PrivacySettings,
+    PrivacyUpdate,
     UserResponse,
     UserUpdate,
+)
+from app.services.presence import (
+    announce_last_seen,
+    presence_snapshot,
 )
 
 
@@ -168,6 +177,174 @@ async def update_me(
     )
 
     return current_user
+
+
+@router.get(
+    "/me/privacy",
+    response_model=PrivacySettings,
+)
+async def get_privacy(
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+):
+    return PrivacySettings(
+        last_seen=current_user.last_seen_visibility,
+    )
+
+
+@router.patch(
+    "/me/privacy",
+    response_model=PrivacySettings,
+)
+async def update_privacy(
+    settings: PrivacyUpdate,
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: AsyncSession = Depends(get_db),
+):
+    if (
+        settings.last_seen is not None
+        and settings.last_seen != current_user.last_seen_visibility
+    ):
+        current_user.last_seen_visibility = settings.last_seen
+        await db.commit()
+
+        # Peers lose or regain this user's last seen, and because the rule
+        # is mutual, this user's own view of their peers changes too.
+        await announce_last_seen(
+            db,
+            current_user.id,
+            "presence.last_seen",
+        )
+        await manager.send_to_user(
+            current_user.id,
+            await presence_snapshot(db, current_user.id),
+        )
+
+    return PrivacySettings(
+        last_seen=current_user.last_seen_visibility,
+    )
+
+
+async def sync_block_change(
+    db: AsyncSession,
+    blocker_id: uuid.UUID,
+    blocked_id: uuid.UUID,
+) -> None:
+    from app.api.ws import end_calls_between
+
+    await end_calls_between(blocker_id, blocked_id)
+    # Both sides gain or lose each other's presence and last seen.
+    for user_id in (blocker_id, blocked_id):
+        await manager.send_to_user(user_id, await presence_snapshot(db, user_id))
+    await manager.send_to_user(blocker_id, {"type": "blocks.updated"})
+
+
+@router.get(
+    "/me/blocked",
+    response_model=list[BlockedUserResponse],
+)
+async def list_blocked_users(
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(User, UserBlock.created_at)
+        .join(UserBlock, UserBlock.blocked_id == User.id)
+        .where(UserBlock.blocker_id == current_user.id)
+        .order_by(UserBlock.created_at.desc())
+    )
+
+    return [
+        BlockedUserResponse(
+            **UserResponse.model_validate(user).model_dump(),
+            blocked_at=blocked_at,
+        )
+        for user, blocked_at in result.all()
+    ]
+
+
+@router.put(
+    "/me/blocked/{user_id}",
+    response_model=BlockedUserResponse,
+)
+async def block_user(
+    user_id: uuid.UUID,
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: AsyncSession = Depends(get_db),
+):
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot block yourself",
+        )
+
+    target_user = await db.get(User, user_id)
+
+    if target_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    user_data = UserResponse.model_validate(target_user).model_dump()
+
+    blocked_at = await db.scalar(
+        insert(UserBlock)
+        .values(blocker_id=current_user.id, blocked_id=user_id)
+        .on_conflict_do_nothing()
+        .returning(UserBlock.created_at)
+    )
+    created = blocked_at is not None
+
+    if not created:
+        blocked_at = await db.scalar(
+            select(UserBlock.created_at).where(
+                UserBlock.blocker_id == current_user.id,
+                UserBlock.blocked_id == user_id,
+            )
+        )
+
+    await db.commit()
+
+    if created:
+        await sync_block_change(db, current_user.id, user_id)
+
+    return BlockedUserResponse(**user_data, blocked_at=blocked_at)
+
+
+@router.delete(
+    "/me/blocked/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def unblock_user(
+    user_id: uuid.UUID,
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        delete(UserBlock).where(
+            UserBlock.blocker_id == current_user.id,
+            UserBlock.blocked_id == user_id,
+        )
+    )
+    await db.commit()
+
+    if result.rowcount:
+        await sync_block_change(db, current_user.id, user_id)
 
 
 @router.post(

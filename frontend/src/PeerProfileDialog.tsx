@@ -1,10 +1,19 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getMediaUrl, type User } from "./api";
 import { avatarInitials, avatarStyle } from "./avatar";
 import { Icon } from "./Icon";
 
-export function PeerProfileDialog({ user, onClose }: { user: User; onClose: () => void }) {
+export function PeerProfileDialog({ user, blocked, busy, onBlockChange, onClose }: {
+    user: User;
+    blocked?: boolean;
+    busy?: boolean;
+    /** Omit to hide the block controls, e.g. in group member lists. */
+    onBlockChange?: (block: boolean) => Promise<void>;
+    onClose: () => void;
+}) {
     const dialogRef = useRef<HTMLDialogElement | null>(null);
+    const [confirmingBlock, setConfirmingBlock] = useState(false);
+    const name = user.display_name?.trim() || user.username;
 
     useEffect(() => {
         const dialog = dialogRef.current;
@@ -38,6 +47,31 @@ export function PeerProfileDialog({ user, onClose }: { user: User; onClose: () =
                     <dt>Bio</dt>
                     <dd>{user.bio?.trim() || "No bio yet"}</dd>
                 </dl>
+                {onBlockChange && (confirmingBlock ? (
+                    <div className="peer-block-confirm" role="region" aria-label="Confirm block">
+                        <p>Block {name}? They won't be able to message or call you, and you won't see each other's online status.</p>
+                        <div>
+                            <button type="button" onClick={() => setConfirmingBlock(false)} disabled={busy}>Cancel</button>
+                            <button
+                                type="button"
+                                className="danger"
+                                disabled={busy}
+                                onClick={() => void onBlockChange(true).then(() => setConfirmingBlock(false))}
+                            >
+                                {busy ? "Blocking..." : "Block"}
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <button
+                        type="button"
+                        className={`peer-block-button${blocked ? "" : " danger"}`}
+                        disabled={busy}
+                        onClick={() => (blocked ? void onBlockChange(false) : setConfirmingBlock(true))}
+                    >
+                        {blocked ? (busy ? "Unblocking..." : "Unblock user") : "Block user"}
+                    </button>
+                ))}
             </div>
         </dialog>
     );

@@ -63,3 +63,15 @@ class User(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # "everyone" or "nobody"; see app/services/presence.py.
+    last_seen_visibility: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="everyone",
+        server_default="everyone",
+    )

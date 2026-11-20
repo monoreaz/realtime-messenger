@@ -136,7 +136,7 @@ export function useAudioCall(socket: React.RefObject<WebSocket | null>, enabled:
         if (!value || data.call_id !== value.id) return;
         if (data.type === "call.end") {
             end(false);
-            setError(data.reason === "busy" ? "This person is busy" : data.reason === "offline" ? "This person is offline" : "");
+            setError(data.reason === "busy" ? "This person is busy" : data.reason === "offline" ? "This person is offline" : data.reason === "blocked" ? "You can't call this user" : "");
             return;
         }
         if (data.type === "call.started" && data.started_at) {

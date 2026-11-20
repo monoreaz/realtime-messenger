@@ -1,3 +1,4 @@
+import type { LastSeenVisibility } from "./lastSeen";
 export interface User {
     is_admin?: boolean;
     id: string;
@@ -1040,4 +1041,55 @@ export async function getCallIceServers(token: string): Promise<RTCIceServer[]> 
     if (!response.ok) throw new Error("Could not prepare the call connection. Please try again.");
     const data = await response.json();
     return data.iceServers;
+}
+
+export interface PrivacySettings {
+    last_seen: LastSeenVisibility;
+}
+
+export async function getPrivacySettings(token: string): Promise<PrivacySettings> {
+    const response = await fetch(`${API_BASE_URL}/users/me/privacy`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not load privacy settings"));
+    return response.json();
+}
+
+export async function updatePrivacySettings(token: string, settings: Partial<PrivacySettings>): Promise<PrivacySettings> {
+    const response = await fetch(`${API_BASE_URL}/users/me/privacy`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not save privacy settings"));
+    return response.json();
+}
+
+export interface BlockedUser extends User {
+    blocked_at: string;
+}
+
+export async function getBlockedUsers(token: string): Promise<BlockedUser[]> {
+    const response = await fetch(`${API_BASE_URL}/users/me/blocked`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not load blocked users"));
+    return response.json();
+}
+
+export async function blockUser(token: string, userId: string): Promise<BlockedUser> {
+    const response = await fetch(`${API_BASE_URL}/users/me/blocked/${userId}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not block this user"));
+    return response.json();
+}
+
+export async function unblockUser(token: string, userId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/users/me/blocked/${userId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not unblock this user"));
 }
