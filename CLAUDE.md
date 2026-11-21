@@ -9,8 +9,10 @@
   Read `desktop/PROGRESS.md` first: architecture, parity checklist, build status, next steps.
 
 ## Deployment facts
-- Production runs on VM messenger-01 (`~/messenger`, Docker Compose: db, backend, frontend (Vite dev),
-  caddy, turn). Public URL (tailnet only): https://messenger-01.tail1a26d2.ts.net
+- Production runs on VM messenger-01 (`~/messenger`, Docker Compose: db, backend, caddy serving the static
+  web build, turn (coturn), cloudflared). Public URL: https://chat.slaxz.com (Cloudflare Tunnel); tailnet
+  URL https://messenger-01.tail1a26d2.ts.net keeps working. TURN: turn.slaxz.com:3478. See `ops/PUBLIC.md`
+  on main.
 - Never modify the production database or compose stack without asking the owner.
 - Secrets (`.env`, `secrets/`, `android/app/google-services.json`) are gitignored — never commit them.
 
