@@ -55,3 +55,12 @@ class GroupDetails(BaseModel):
 
 class GroupCreate(GroupDetails):
     member_ids: list[uuid.UUID] = Field(min_length=2, max_length=99)
+
+
+class GroupInvitationResponse(BaseModel):
+    chat_id: uuid.UUID
+    name: str | None = None
+    description: str | None = None
+    member_count: int = 0
+    inviter: UserResponse | None = None
+    created_at: datetime

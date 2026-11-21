@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.database import DATABASE_URL
 from app.models.user import User
-from app.api.chats import create_group_chat, create_private_chat, get_chats, mark_chat_read, update_group
+from app.api.chats import accept_invitation, create_group_chat, create_private_chat, get_chats, mark_chat_read, update_group
 from app.api.messages import send_message, check_chat_membership
 from app.schemas.chat import GroupCreate, GroupDetails
 from app.schemas.message import MessageCreate
@@ -36,16 +36,19 @@ class GroupTests(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
 
     async def make_group(self):
-        return await create_group_chat(GroupCreate(name="  Team  ", member_ids=[u.id for u in self.users[1:3]]), self.users[0], self.db)
+        # Invited users become members only by accepting (see test_media_groups.py).
+        created = await create_group_chat(GroupCreate(name="  Team  ", member_ids=[u.id for u in self.users[1:3]]), self.users[0], self.db)
+        for user in self.users[1:3]:
+            await accept_invitation(created.id, user, self.db)
+        return next(chat for chat in await get_chats(self.users[0], self.db) if chat.id == created.id)
 
     async def test_group_visible_to_all_members_and_not_outsider(self):
         group = await self.make_group()
         self.assertEqual(group.name, "Team")
         self.assertIsNone(group.peer)
         self.assertEqual({u.id for u in group.members}, {u.id for u in self.users[:3]})
-        recipients, event = self.broadcast.call_args.args
-        self.assertEqual(set(recipients), {u.id for u in self.users[:3]})
-        self.assertEqual(event["type"], "chat.created")
+        invitations = [call.args for call in self.broadcast.call_args_list if call.args[1]["type"] == "group.invitation"]
+        self.assertEqual([set(recipients) for recipients, _ in invitations], [{u.id for u in self.users[1:3]}])
         for user in self.users[:3]:
             self.assertIn(group.id, [chat.id for chat in await get_chats(user, self.db)])
         self.assertNotIn(group.id, [chat.id for chat in await get_chats(self.users[3], self.db)])

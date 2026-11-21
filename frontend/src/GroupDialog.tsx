@@ -63,7 +63,7 @@ export function GroupDialog({ token, currentUserId, chats, onClose, onCreated }:
             <label>Group name<input autoFocus value={name} onChange={event => setName(event.target.value)} maxLength={100} required disabled={saving} placeholder="Friends, family, team…" /></label>
             <label>Group username <small>Optional · 3–32 letters, numbers or underscores</small><input value={username} onChange={event => setUsername(event.target.value.replace(/^@/, "").toLowerCase())} minLength={3} maxLength={32} pattern="[a-z0-9_]{3,32}" disabled={saving} placeholder="group_username" /></label>
             <label>Description <small>Optional</small><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} disabled={saving} rows={3} placeholder="What is this group about?" /></label>
-            <label>Add participants<input value={query} onChange={event => setQuery(event.target.value)} disabled={saving} placeholder="Search by username" /></label>
+            <label>Invite people<input value={query} onChange={event => setQuery(event.target.value)} disabled={saving} placeholder="Search by username" /></label>
             <div className="group-search-results" aria-live="polite">
                 {!query.trim() && <p className="group-contacts-title">Your chats</p>}
                 {!query.trim() && !existingContacts.length && <p>Search by username to add participants.</p>}
@@ -72,7 +72,7 @@ export function GroupDialog({ token, currentUserId, chats, onClose, onCreated }:
                     return <label key={user.id}><input type="checkbox" checked={checked} disabled={saving || (!checked && selected.length >= 99)} onChange={() => setSelected(items => checked ? items.filter(item => item.id !== user.id) : [...items, user])} /><span className="avatar group-pick-avatar" style={avatarStyle(user.id)} aria-hidden="true">{getMediaUrl(user.avatar_url) ? <img src={getMediaUrl(user.avatar_url)!} alt="" /> : <span className="avatar-initials">{avatarInitials(user.display_name || user.username)}</span>}</span><span className="group-pick-name">{user.display_name || user.username}<small>@{user.username}</small></span><span className="group-pick-check" aria-hidden="true"><Icon name="check" /></span></label>;
                 })}
             </div>
-            <p className="group-hint">Select at least two people. You will be added automatically.</p>
+            <p className="group-hint">Select at least two people. They get an invitation and join when they accept.</p>
             <div className="group-selected">{selected.map(user => <button type="button" key={user.id} disabled={saving} onClick={() => setSelected(items => items.filter(item => item.id !== user.id))} aria-label={`Remove ${user.username}`}>{user.display_name || user.username} <Icon name="close" /></button>)}</div>
             {error && <p role="alert" className="group-error">{error}</p>}
             <button className="group-submit" type="submit" disabled={saving || !name.trim() || selected.length < 2}>{saving ? "Creating…" : `Create group · ${selected.length + 1} participants`}</button>

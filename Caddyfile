@@ -1,11 +1,14 @@
 {
 	servers {
-		# Requests reach Caddy through a local reverse proxy (tailscale serve via the
-		# Docker port mapping), so only private-range peers may supply X-Forwarded-For.
-		# Strict mode takes the right-most untrusted address, which a client cannot forge.
-		# If Caddy is ever exposed directly to the internet, peers are public addresses
-		# and their X-Forwarded-For headers are ignored.
-		trusted_proxies static private_ranges
+		# Requests reach Caddy only from tailscale serve on this host, through the Docker
+		# port mapping on 127.0.0.1:8080 (peer: loopback or the Docker bridge gateway).
+		# tailscale serve (verified for 1.104.6, ipn/ipnlocal/serve.go) drops any incoming
+		# X-Forwarded-For and sets it to the connection's real source address, so the
+		# header holds exactly one value that clients cannot forge. Only those two peer
+		# ranges are trusted; tailnet and LAN addresses are not, so a header sent by any
+		# other peer (e.g. if Caddy is ever exposed directly) is ignored. Strict mode takes
+		# the right-most untrusted address.
+		trusted_proxies static 127.0.0.0/8 ::1/128 172.16.0.0/12
 		trusted_proxies_strict
 		client_ip_headers X-Forwarded-For
 	}

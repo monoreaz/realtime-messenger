@@ -22,6 +22,7 @@ from app.database import get_db
 from app.models.chat import ChatMember
 from app.models.user import User
 from app.models.user_block import UserBlock
+from app.models.group_invitation import GroupInvitation
 from app.realtime.manager import manager
 from app.services.media import content_matches
 from app.schemas.user import (
@@ -315,6 +316,14 @@ async def block_user(
                 UserBlock.blocked_id == user_id,
             )
         )
+
+    # Pending group invitations from the blocked user to the blocker are withdrawn.
+    await db.execute(
+        delete(GroupInvitation).where(
+            GroupInvitation.invitee_id == current_user.id,
+            GroupInvitation.inviter_id == user_id,
+        )
+    )
 
     await db.commit()
 

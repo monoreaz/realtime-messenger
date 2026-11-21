@@ -16,9 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models.chat import Chat, ChatMember
+from app.models.group_invitation import GroupInvitation
 from app.models.message import Message
 from app.models.user import User
-from app.schemas.chat import ChatResponse, LastMessageResponse, GroupCreate, GroupDetails, ChatMemberResponse
+from app.schemas.chat import ChatResponse, LastMessageResponse, GroupCreate, GroupDetails, ChatMemberResponse, GroupInvitationResponse
 from app.schemas.user import UserResponse
 from app.realtime.manager import manager
 from app.core.rate_limit import enforce
@@ -382,16 +383,78 @@ async def create_group_chat(
     db.add(chat)
     try:
         await db.flush()
-        member_ids = invited_ids | {current_user.id}
-        db.add_all([ChatMember(chat_id=chat.id, user_id=user_id,
-            group_role="admin" if user_id == current_user.id else "member") for user_id in member_ids])
+        # Only the creator becomes a member. Everyone else is *invited* and joins only by
+        # accepting; until then they have no access to the group's messages or files.
+        db.add(ChatMember(chat_id=chat.id, user_id=current_user.id, group_role="admin"))
+        db.add_all([GroupInvitation(chat_id=chat.id, invitee_id=user_id, inviter_id=current_user.id) for user_id in invited_ids])
         await db.commit()
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=409, detail="This group username is already taken")
     await db.refresh(chat)
-    await manager.send_to_users(list(member_ids), {"type": "chat.created", "chat_id": str(chat.id)})
+    await manager.send_to_user(current_user.id, {"type": "chat.created", "chat_id": str(chat.id)})
+    await manager.send_to_users(list(invited_ids), {"type": "group.invitation", "chat_id": str(chat.id)})
     return await build_chat_response(db, chat, None, current_user.id)
+
+
+@router.get("/invitations", response_model=list[GroupInvitationResponse])
+async def list_invitations(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    """The current user's pending group invitations (newest first)."""
+    rows = (await db.execute(
+        select(GroupInvitation, Chat)
+        .join(Chat, Chat.id == GroupInvitation.chat_id)
+        .where(GroupInvitation.invitee_id == current_user.id)
+        .order_by(GroupInvitation.created_at.desc())
+    )).all()
+    result = []
+    for invitation, chat in rows:
+        inviter = await db.get(User, invitation.inviter_id) if invitation.inviter_id else None
+        member_count = await db.scalar(select(func.count()).select_from(ChatMember).where(ChatMember.chat_id == chat.id))
+        result.append(GroupInvitationResponse(
+            chat_id=chat.id, name=chat.name, description=chat.description, member_count=member_count,
+            inviter=UserResponse.model_validate(inviter) if inviter else None, created_at=invitation.created_at,
+        ))
+    return result
+
+
+async def _own_invitation(db: AsyncSession, chat_id: uuid.UUID, user: User) -> GroupInvitation:
+    # Looked up by the *current* user only, so nobody can accept or decline for someone else.
+    invitation = await db.get(GroupInvitation, (chat_id, user.id))
+    if invitation is None:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    return invitation
+
+
+@router.post("/{chat_id}/invitation/accept", response_model=ChatResponse)
+async def accept_invitation(
+    chat_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    invitation = await _own_invitation(db, chat_id, current_user)
+    chat = await db.get(Chat, chat_id)
+    await db.delete(invitation)
+    db.add(ChatMember(chat_id=chat_id, user_id=current_user.id, group_role="member"))
+    await db.commit()
+    member_ids = (await db.scalars(select(ChatMember.user_id).where(ChatMember.chat_id == chat_id))).all()
+    await manager.send_to_users([user_id for user_id in member_ids if user_id != current_user.id],
+                                {"type": "chat.updated", "chat_id": str(chat_id)})
+    await manager.send_to_user(current_user.id, {"type": "chat.created", "chat_id": str(chat_id)})
+    return await build_chat_response(db, chat, None, current_user.id)
+
+
+@router.post("/{chat_id}/invitation/decline", status_code=status.HTTP_204_NO_CONTENT)
+async def decline_invitation(
+    chat_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    await db.delete(await _own_invitation(db, chat_id, current_user))
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch("/{chat_id}/group", response_model=ChatResponse)

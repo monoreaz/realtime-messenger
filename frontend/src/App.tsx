@@ -44,6 +44,9 @@ import {
     type Chat,
     type Message,
     type User,
+    getGroupInvitations,
+    respondToGroupInvitation,
+    type GroupInvitation,
 } from "./api";
 
 import "./App.css";
@@ -202,6 +205,9 @@ function App() {
 
     const [user, setUser] = useState<User | null>(null);
     const [chats, setChats] = useState<Chat[]>([]);
+    // Pending group invitations: groups the user was invited to but has not joined.
+    const [invitations, setInvitations] = useState<GroupInvitation[]>([]);
+    const [invitationBusy, setInvitationBusy] = useState<string | null>(null);
     const [activeChat, setActiveChat] = useState<Chat | null>(null);
     const [draftPeer, setDraftPeer] = useState<User | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -1249,6 +1255,31 @@ function App() {
 
     useEffect(() => {
         if (!token || !user) {
+            setInvitations([]);
+            return;
+        }
+        void getGroupInvitations(token).then(setInvitations).catch(() => undefined);
+    }, [Boolean(token), user?.id]);
+
+    async function answerInvitation(invitation: GroupInvitation, accept: boolean) {
+        if (!token || invitationBusy) return;
+        setInvitationBusy(invitation.chat_id);
+        try {
+            const chat = await respondToGroupInvitation(token, invitation.chat_id, accept);
+            setInvitations(items => items.filter(item => item.chat_id !== invitation.chat_id));
+            if (chat) {
+                setChats(items => getVisibleChats([chat, ...items.filter(item => item.id !== chat.id)]));
+            }
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : "Could not answer the invitation");
+            void getGroupInvitations(token).then(setInvitations).catch(() => undefined);
+        } finally {
+            setInvitationBusy(null);
+        }
+    }
+
+    useEffect(() => {
+        if (!token || !user) {
             return;
         }
 
@@ -1402,6 +1433,11 @@ function App() {
                     return updated;
                 });
 
+                return;
+            }
+
+            if (data.type === "group.invitation") {
+                void getGroupInvitations(token).then(setInvitations).catch(() => undefined);
                 return;
             }
 
@@ -3289,6 +3325,28 @@ function App() {
                             </div>
                         )}
                     </div>
+
+                    {invitations.length > 0 && (
+                        <section className="group-invitations" aria-label="Group invitations">
+                            <h3>Group invitations</h3>
+                            {invitations.map(invitation => {
+                                const inviter = invitation.inviter ? getUserDisplayName(invitation.inviter) : "Someone";
+                                const busy = invitationBusy === invitation.chat_id;
+                                return (
+                                    <div key={invitation.chat_id} className="group-invitation">
+                                        <div className="group-invitation-text">
+                                            <strong>{invitation.name || "Group"}</strong>
+                                            <span>{inviter} invited you · {invitation.member_count} {invitation.member_count === 1 ? "member" : "members"}</span>
+                                        </div>
+                                        <div className="group-invitation-actions">
+                                            <button type="button" disabled={invitationBusy !== null} onClick={() => void answerInvitation(invitation, false)}>Decline</button>
+                                            <button type="button" className="accept" disabled={invitationBusy !== null} onClick={() => void answerInvitation(invitation, true)}>{busy ? "…" : "Join"}</button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </section>
+                    )}
 
                     <div className="chat-list">
                         {chats.length === 0 ? (

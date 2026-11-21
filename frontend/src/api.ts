@@ -1014,6 +1014,32 @@ export const setAdminUserBlocked = (token: string, userId: string, isBlocked: bo
     adminRequest<AdminUser>(token, `/users/${userId}/block`, "PATCH", { is_blocked: isBlocked });
 
 
+export interface GroupInvitation {
+    chat_id: string;
+    name: string | null;
+    description: string | null;
+    member_count: number;
+    inviter: User | null;
+    created_at: string;
+}
+
+export async function getGroupInvitations(token: string): Promise<GroupInvitation[]> {
+    const response = await fetch(`${API_BASE_URL}/chats/invitations`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not load group invitations"));
+    return response.json();
+}
+
+export async function respondToGroupInvitation(token: string, chatId: string, accept: boolean): Promise<Chat | null> {
+    const response = await fetch(`${API_BASE_URL}/chats/${chatId}/invitation/${accept ? "accept" : "decline"}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(await getErrorMessage(response, "Could not answer the invitation"));
+    return accept ? response.json() : null;
+}
+
 export async function leaveGroup(token: string, chatId: string): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/chats/${chatId}/leave`, {
         method: "POST",

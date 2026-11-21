@@ -174,6 +174,8 @@ class GroupInviteTests(AuditTestCase):
         status, _, group = await self.create([self.b, self.c])
         group_id = group["id"]
         token_b = create_access_token(str(self.b.id))
+        for token in (token_b, create_access_token(str(self.c.id))):
+            self.assertEqual((await self.call("POST", f"/chats/{group_id}/invitation/accept", token=token))[0], 200)
         # The admin leaves: the longest-standing remaining member becomes admin.
         self.assertEqual((await self.call("POST", f"/chats/{group_id}/leave", token=self.token))[0], 204)
         roles = {member.user_id: member.group_role for member in
@@ -209,3 +211,80 @@ class OrphanCleanupTests(AuditTestCase):
             os.utime(orphan, (old, old))
             found = cleanup_uploads.find_orphans({"/uploads/messages/kept.png"}, root)
             self.assertEqual(found, [orphan])
+
+
+class InvitationConsentTests(AuditTestCase):
+    """Groups only invite; nobody becomes a member (or sees anything) without accepting."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        suffix = uuid.uuid4().hex[:10]
+        self.c = User(username=f"sec_c_{suffix}", password_hash="unused")
+        self.d = User(username=f"sec_d_{suffix}", password_hash="unused")
+        self.db.add_all([self.c, self.d])
+        await self.db.flush()
+        self.tokens = {user.id: create_access_token(str(user.id)) for user in (self.a, self.b, self.c, self.d)}
+        status, _, group = await self.call("POST", "/chats/group", token=self.tokens[self.a.id],
+                                           json_body={"name": "Team", "member_ids": [str(self.b.id), str(self.c.id)]})
+        self.assertEqual(status, 201)
+        self.group_id = group["id"]
+        self.assertEqual([member["id"] for member in group["members"]], [str(self.a.id)])
+        # The creator posts a text and an image before anyone accepted.
+        await self.call("POST", f"/chats/{self.group_id}/messages", token=self.tokens[self.a.id], json_body={"content": "secret"})
+        body, ctype = multipart(png(), "image/png", "pic.png")
+        status, _, message = await self.call("POST", f"/chats/{self.group_id}/messages/image",
+                                             token=self.tokens[self.a.id], body=body, content_type=ctype)
+        self.image_url = message["image_url"]
+
+    def token(self, user):
+        return self.tokens[user.id]
+
+    async def assert_no_access(self, user):
+        g, t = self.group_id, self.token(user)
+        self.assertEqual((await self.call("GET", f"/chats/{g}/messages", token=t))[0], 404)
+        self.assertEqual((await self.call("POST", f"/chats/{g}/messages", token=t, json_body={"content": "x"}))[0], 404)
+        self.assertEqual((await self.call("GET", f"/chats/{g}/pinned-messages", token=t))[0], 404)
+        self.assertEqual((await self.call("POST", f"/chats/{g}/read", token=t))[0], 404)
+        self.assertEqual((await self.call("GET", self.image_url, token=t))[0], 404)
+        self.assertEqual((await self.call("GET", self.image_url, token=t, headers=[(b"range", b"bytes=0-3")]))[0], 404)
+        status, _, chats_list = await self.call("GET", "/chats", token=t)
+        self.assertNotIn(g, [chat["id"] for chat in chats_list])
+
+    async def test_pending_invitation_grants_no_access(self):
+        status, _, invitations = await self.call("GET", "/chats/invitations", token=self.token(self.b))
+        self.assertEqual(status, 200)
+        self.assertEqual([(i["chat_id"], i["inviter"]["id"], i["member_count"]) for i in invitations],
+                         [(self.group_id, str(self.a.id), 1)])
+        await self.assert_no_access(self.b)
+        # New messages are not delivered to pending invitees.
+        manager.send_to_users.reset_mock()
+        await self.call("POST", f"/chats/{self.group_id}/messages", token=self.token(self.a), json_body={"content": "more"})
+        recipients = {user_id for call in manager.send_to_users.call_args_list
+                      if call.args[1]["type"] == "message.new" for user_id in call.args[0]}
+        self.assertEqual(recipients, {self.a.id})
+
+    async def test_only_the_invitee_can_accept(self):
+        path = f"/chats/{self.group_id}/invitation/accept"
+        for user in (self.a, self.d):  # the inviter/admin and an outsider have no invitation
+            self.assertEqual((await self.call("POST", path, token=self.token(user)))[0], 404)
+        self.assertEqual((await self.call("POST", f"/chats/{uuid.uuid4()}/invitation/accept", token=self.token(self.b)))[0], 404)
+        await self.assert_no_access(self.b)
+        status, _, chat = await self.call("POST", path, token=self.token(self.b))
+        self.assertEqual(status, 200)
+        self.assertEqual({member["id"] for member in chat["members"]}, {str(self.a.id), str(self.b.id)})
+        self.assertEqual((await self.call("GET", f"/chats/{self.group_id}/messages", token=self.token(self.b)))[0], 200)
+        self.assertEqual((await self.call("GET", self.image_url, token=self.token(self.b)))[0], 200)
+        self.assertEqual((await self.call("POST", path, token=self.token(self.b)))[0], 404)  # used up
+        await self.assert_no_access(self.c)  # still pending
+
+    async def test_declined_invitations_cannot_be_accepted_later(self):
+        self.assertEqual((await self.call("POST", f"/chats/{self.group_id}/invitation/decline", token=self.token(self.c)))[0], 204)
+        self.assertEqual((await self.call("POST", f"/chats/{self.group_id}/invitation/accept", token=self.token(self.c)))[0], 404)
+        self.assertEqual((await self.call("GET", "/chats/invitations", token=self.token(self.c)))[2], [])
+        await self.assert_no_access(self.c)
+        self.assertEqual((await self.call("POST", f"/chats/{self.group_id}/invitation/decline", token=self.token(self.d)))[0], 404)
+
+    async def test_blocking_the_inviter_withdraws_the_invitation(self):
+        self.assertEqual((await self.call("PUT", f"/users/me/blocked/{self.a.id}", token=self.token(self.c)))[0], 200)
+        self.assertEqual((await self.call("GET", "/chats/invitations", token=self.token(self.c)))[2], [])
+        self.assertEqual((await self.call("POST", f"/chats/{self.group_id}/invitation/accept", token=self.token(self.c)))[0], 404)
