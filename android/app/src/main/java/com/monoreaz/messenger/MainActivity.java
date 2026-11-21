@@ -17,7 +17,8 @@ import java.util.Arrays;
 
 public class MainActivity extends Activity {
     private static final int FILE_REQUEST = 10, AUDIO_REQUEST = 11;
-    private static final String DEFAULT_SERVER = "https://messenger-01.tail1a26d2.ts.net";
+    // New installs; a server saved in Server settings is kept (the tailnet address still works).
+    private static final String DEFAULT_SERVER = "https://chat.slaxz.com";
     private WebView web;
     private PushBridge pushBridge;
     private LinearLayout toolbar;
