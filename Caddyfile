@@ -1,20 +1,32 @@
 {
-	servers {
-		# Requests reach Caddy only from tailscale serve on this host, through the Docker
-		# port mapping on 127.0.0.1:8080 (peer: loopback or the Docker bridge gateway).
-		# tailscale serve (verified for 1.104.6, ipn/ipnlocal/serve.go) drops any incoming
-		# X-Forwarded-For and sets it to the connection's real source address, so the
-		# header holds exactly one value that clients cannot forge. Only those two peer
-		# ranges are trusted; tailnet and LAN addresses are not, so a header sent by any
-		# other peer (e.g. if Caddy is ever exposed directly) is ignored. Strict mode takes
-		# the right-most untrusted address.
-		trusted_proxies static 127.0.0.0/8 ::1/128 172.16.0.0/12
+	servers :80 {
+		# Tailnet entry point. Requests reach this listener only from tailscale serve on this
+		# host, through the Docker port mapping on 127.0.0.1:8080 (peer: loopback or the
+		# messenger_default bridge gateway). tailscale serve (verified for 1.104.6,
+		# ipn/ipnlocal/serve.go) drops any incoming X-Forwarded-For and sets it to the
+		# connection's real source address, so the header holds exactly one value that
+		# clients cannot forge. Only those peer ranges are trusted; tailnet, LAN and the
+		# tunnel network are not, so a header sent by any other peer is ignored. Strict mode
+		# takes the right-most untrusted address.
+		trusted_proxies static 127.0.0.0/8 ::1/128 172.18.0.0/16
 		trusted_proxies_strict
 		client_ip_headers X-Forwarded-For
 	}
+	servers :8081 {
+		# Public entry point (https://chat.slaxz.com). Only cloudflared reaches this
+		# listener: it is not published on the host and the "tunnel" network holds just
+		# Caddy and cloudflared (fixed address 172.31.255.2, see compose.yml). Cloudflare's
+		# edge sets Cf-Connecting-Ip to the visitor's address and overwrites any value the
+		# visitor sends, so it is the only header trusted here.
+		trusted_proxies static 172.31.255.2/32
+		trusted_proxies_strict
+		client_ip_headers Cf-Connecting-Ip
+	}
 }
 
-:80 {
+# The whole site, served identically on both entry points; only the client-IP source
+# differs (global options above).
+(messenger) {
 	# Security headers for the whole site (the API adds nosniff/no-referrer itself too).
 	header {
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' wss://{host}; font-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
@@ -76,4 +88,14 @@
 		try_files {path} /index.html
 		file_server
 	}
+}
+
+# Tailnet: tailscale serve -> 127.0.0.1:8080 -> here.
+:80 {
+	import messenger
+}
+
+# Public: Cloudflare Tunnel -> cloudflared -> caddy:8081.
+:8081 {
+	import messenger
 }

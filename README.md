@@ -94,6 +94,8 @@ WS /ws
 
 ## Running it
 
+Production (public at https://chat.slaxz.com via Cloudflare Tunnel, TURN, operations): see [ops/PUBLIC.md](ops/PUBLIC.md).
+
 Clone the repository:
 
 

@@ -6,6 +6,7 @@ export default defineConfig({
     server: {
         allowedHosts: [
             "messenger-01.tail1a26d2.ts.net",
+            "chat.slaxz.com",
         ],
     },
 });

@@ -1,24 +1,38 @@
-# Copy to secrets/turnserver.conf and replace both placeholders.
+# Copy to secrets/turnserver.conf (0600) and replace SHARED_SECRET.
 # Put the identical SHARED_SECRET into secrets/turn-secret (one line).
-listening-ip=TAILSCALE_IP
-relay-ip=TAILSCALE_IP
+#
+# Public TURN for https://chat.slaxz.com (turn.slaxz.com = 88.146.114.175, DNS only).
+# The router forwards 3478/udp+tcp and 49160-49259/udp to this VM (192.168.30.106).
+# Tailnet clients keep using 100.91.201.40.
+listening-ip=192.168.30.106
+listening-ip=100.91.201.40
 listening-port=3478
+relay-ip=192.168.30.106
+# NAT: advertise relay addresses with the public IP. coturn also maps this public IP
+# back to the private one in peer addresses, so relay-to-relay calls work without NAT
+# loopback on the router.
+external-ip=88.146.114.175/192.168.30.106
 min-port=49160
 max-port=49259
 fingerprint
 use-auth-secret
 static-auth-secret=SHARED_SECRET
-realm=messenger
+realm=slaxz.com
 no-cli
 no-tls
 no-dtls
 no-multicast-peers
 no-tcp-relay
+no-software-attribute
+stale-nonce=600
 user-quota=12
 total-quota=120
 max-bps=128000
 bps-capacity=15360000
+# Relay only between allocations on this server (every web/Android client gets TURN
+# credentials, so a relay-relay pair always exists). The relay can't be used to reach
+# the LAN, the tailnet or arbitrary internet hosts.
 denied-peer-ip=0.0.0.0-255.255.255.255
-allowed-peer-ip=TAILSCALE_IP
+allowed-peer-ip=192.168.30.106
 log-file=stdout
 simple-log

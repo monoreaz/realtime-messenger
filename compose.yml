@@ -67,7 +67,10 @@ services:
     # The backend is reachable only on the internal Docker network (no published port),
     # so it trusts the X-Forwarded-For that Caddy sets to the client address it computed.
     # --ws-max-size caps a single WebSocket frame (call SDP offers are at most 64 KB).
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
+    # No --reload in production: after changing backend code, run
+    # `docker compose restart backend`. Keep a single process: presence, calls and rate
+    # limits live in memory.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
               "--proxy-headers", "--forwarded-allow-ips", "*", "--ws-max-size", "262144"]
 
     depends_on:
@@ -131,12 +134,40 @@ services:
       - ./secrets/turnserver.conf:/etc/coturn/turnserver.conf:ro
     command: ["-c", "/etc/coturn/turnserver.conf"]
 
+  # Public entry point: Cloudflare Tunnel (outbound only, no open ports). The tunnel's
+  # public hostname chat.slaxz.com points to http://caddy:8081 (set in the Cloudflare
+  # dashboard). Token: secrets/cloudflared-token (0600). See ops/PUBLIC.md.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.11.1
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    # Same owner as the token file (0600), so it can be read without widening permissions.
+    user: "1000:1000"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./secrets/cloudflared-token:/run/cloudflared/token:ro
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/cloudflared/token"]
+    networks:
+      tunnel:
+        # Caddy trusts Cf-Connecting-Ip only from this address (Caddyfile, servers :8081).
+        ipv4_address: 172.31.255.2
+    depends_on:
+      - caddy
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
 
+    # :80 (tailnet) is published on loopback for tailscale serve; :8081 (public) is not
+    # published at all and is reachable only from cloudflared on the tunnel network.
     ports:
       - "127.0.0.1:8080:80"
+
+    networks:
+      - default
+      - tunnel
 
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -144,6 +175,13 @@ services:
 
     depends_on:
       - backend
+
+networks:
+  # Only Caddy and cloudflared: the tunnel can't reach the backend or the database.
+  tunnel:
+    ipam:
+      config:
+        - subnet: 172.31.255.0/28
 
 volumes:
   postgres_data:
