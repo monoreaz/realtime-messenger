@@ -166,8 +166,10 @@ services:
       - "127.0.0.1:8080:80"
 
     networks:
-      - default
-      - tunnel
+      default: {}
+      tunnel:
+        # Fixed too, so Docker never hands cloudflared's address (.2) to Caddy.
+        ipv4_address: 172.31.255.3
 
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
