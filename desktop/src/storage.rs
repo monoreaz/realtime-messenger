@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_SERVER: &str = "https://messenger-01.tail1a26d2.ts.net";
+/// New installs. Existing installs keep the server they saved (the tailnet address
+/// https://messenger-01.tail1a26d2.ts.net keeps working); it can be changed at sign-in.
+pub const DEFAULT_SERVER: &str = "https://chat.slaxz.com";
 
 /// Directories for this app: `%APPDATA%\Messenger` (config) and
 /// `%LOCALAPPDATA%\Messenger` (cache, updates) on Windows.

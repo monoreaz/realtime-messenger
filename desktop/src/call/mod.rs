@@ -2,6 +2,7 @@
 pub mod audio;
 pub mod codec;
 pub mod engine;
+pub mod turn;
 
 use std::time::Instant;
 
@@ -72,9 +73,10 @@ impl ActiveCall {
         }
     }
 
-    pub fn subscription(&self) -> Subscription<(String, engine::Update)> {
+    /// `client` fetches the TURN credentials for the call (`/calls/ice`).
+    pub fn subscription(&self, client: &crate::api::client::Client) -> Subscription<(String, engine::Update)> {
         let Some(role) = self.role() else { return Subscription::none() };
-        let config = engine::Config { call_id: self.id.clone(), role, test_tone: None };
+        let config = engine::Config { call_id: self.id.clone(), role, test_tone: None, ice: engine::Ice::Fetch(client.clone()), relay_only: false };
         Subscription::run_with(config, |config| {
             use futures::StreamExt;
             let id = config.call_id.clone();

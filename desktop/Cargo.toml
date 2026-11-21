@@ -1,6 +1,6 @@
 [package]
 name = "messenger-desktop"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 rust-version = "1.88"
 description = "Native Windows desktop client for Realtime Messenger"
@@ -40,6 +40,10 @@ arboard = "3"
 unsafe-libopus = "0.2"
 if-addrs = "0.13"
 uuid = { version = "1", features = ["v4"] }
+# TURN client for calls (src/call/turn.rs): STUN MESSAGE-INTEGRITY and long-term keys.
+hmac = "0.13"
+sha1 = "0.11"
+md-5 = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

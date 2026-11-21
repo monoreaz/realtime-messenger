@@ -49,9 +49,12 @@ Key decisions:
 - **Calls**: str0m (pure-Rust WebRTC; crypto = Windows CNG/SChannel on Windows, rust-crypto on
   Linux dev builds) + unsafe-libopus (c2rust libopus, no C toolchain) + cpal (WASAPI). Same `call.*`
   signalling and SDP/ICE JSON as the web client. Host candidates on every non-loopback IPv4 interface
-  (Tailscale included); browser TURN relay candidates are used as remote candidates. str0m has no TURN
-  client, so the desktop does not allocate relays itself. This works on the tailnet and LAN, and when the
-  other side relays.
+  (Tailscale included). str0m has no TURN client, so `call/turn.rs` is a small sans-IO one (RFC 8656,
+  UDP; Allocate/Refresh/CreatePermission, Send/Data indications, long-term credentials from
+  `/calls/ice`). The engine fetches the ICE servers in the background, allocates from the host socket
+  that routes to each `turn:` UDP server, and trickles the relay (and server-reflexive) candidate;
+  allocations are released (Refresh lifetime 0) when the call ends. The production coturn relays only
+  between its own allocations, so calls outside the tailnet/LAN always use relay⇄relay.
 - **Backdrop / glass window**: `assets/backdrop*.jpg` are rendered from the web CSS by
   `scripts/gen-backdrop.mjs` (rerun after changing the web backdrop). `ui/backdrop.rs` composes scene,
   `--shadow-window`, frosted glass, sheen and rim into one image per window size (off-thread, debounced),
@@ -112,7 +115,9 @@ Legend: ✅ implemented (compiles; logic unit-tested where noted) · 🔶 partia
   end reason. Notification + taskbar flash + focus on incoming. Verified: engine loopback test, and
   **the web app in Chromium ⇄ desktop engine, both directions, audio both ways** (`call_interop_with_browser`).
   Not yet heard on real Windows audio devices.
-- 🔶 No own TURN allocation (see Key decisions)
+- ✅ Own TURN relay allocation (0.1.6): calls work outside the tailnet. Verified: RFC 5769 vectors, a
+  scripted allocation flow, and two engines with **relay candidates only** through coturn 4.6.3 set up
+  like production (`two_engines_exchange_audio_through_turn`).
 - ➖ Android FCM push (desktop uses native notifications instead)
 
 ### Windows integration
@@ -160,7 +165,9 @@ Legend: ✅ implemented (compiles; logic unit-tested where noted) · 🔶 partia
   RSS 33 MB, 5 threads, idle CPU 0.00% (chat list or chat without focused input); ~5% of one core
   while the composer has focus (caret blink repaints on the CPU renderer). Release binary 31 MB.
 - Windows CI (GitHub Actions windows-latest): ✅ tests, clippy, release build, installer (run 44370733605).
-- Call engine: loopback test ✅; browser interop ✅ (`scripts/it-stack.sh up && scripts/it-stack.sh web`,
+- Call engine: loopback test ✅; TURN relay-only test ✅ (start coturn on a Docker network, then
+  `BUILD_NETWORK=<net> BUILD_ENV="-e MESSENGER_IT_TURN=turn:<ip>:3478 -e MESSENGER_IT_TURN_SECRET=<secret>"
+  scripts/remote-cargo.sh test through_turn`); browser interop ✅ (`scripts/it-stack.sh up && scripts/it-stack.sh web`,
   then run `call_interop` with MESSENGER_IT_CALL=1 together with `scripts/call-interop.mjs` in the
   desktop-browser image (Playwright + Chromium with fake microphone)).
 
@@ -186,4 +193,4 @@ The script rsyncs `desktop/` to messenger-01 and runs cargo in Docker (capped 3 
 2. Owner adds the `DESKTOP_UPDATE_SIGNING_KEY` secret → first `desktop-v0.1.0` draft release
    (ask before tagging/pushing) → test an update 0.1.0 → 0.1.1.
 3. Performance pass on Windows (startup time, idle CPU, memory with large chats).
-4. Optional: TURN client for calls outside the tailnet; video inline playback; multi-line composer.
+4. Optional: TURN over TCP/TLS (strict networks that block UDP); video inline playback; multi-line composer.

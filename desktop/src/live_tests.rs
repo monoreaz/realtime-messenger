@@ -432,6 +432,8 @@ async fn call_interop_with_browser() {
         call_id: call_id.clone(),
         role: Role::Callee { offer: offer["sdp"]["sdp"].as_str().unwrap().to_owned() },
         test_tone: Some(523),
+        ice: engine::Ice::None,
+        relay_only: false,
     }));
     let (sent, received) = relay(engine, &mut events, &ws, &call_id, &alice.id).await;
     eprintln!("INTEROP A (browser→desktop): sent {sent}, received {received}");
@@ -441,7 +443,7 @@ async fn call_interop_with_browser() {
     tokio::time::sleep(Duration::from_secs(3)).await;
     marker("interop-phase-b");
     let call_id = uuid::Uuid::new_v4().to_string();
-    let engine = Box::pin(engine::run(engine::Config { call_id: call_id.clone(), role: Role::Caller, test_tone: Some(784) }));
+    let engine = Box::pin(engine::run(engine::Config { call_id: call_id.clone(), role: Role::Caller, test_tone: Some(784), ice: engine::Ice::None, relay_only: false }));
     let (sent, received) = relay(engine, &mut events, &ws, &call_id, &alice.id).await;
     eprintln!("INTEROP B (desktop→browser): sent {sent}, received {received}");
     assert!(sent > 100 && received > 100, "audio both ways: sent {sent} received {received}");

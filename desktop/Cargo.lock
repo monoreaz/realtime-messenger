@@ -3047,6 +3047,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3072,7 +3082,7 @@ dependencies = [
 
 [[package]]
 name = "messenger-desktop"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -3082,10 +3092,12 @@ dependencies = [
  "ed25519-dalek",
  "env_logger",
  "futures",
+ "hmac",
  "iced",
  "if-addrs",
  "image",
  "log",
+ "md-5",
  "notify-rust",
  "open",
  "reqwest",
@@ -3093,6 +3105,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "str0m",
  "tempfile",

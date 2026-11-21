@@ -429,7 +429,7 @@ impl App {
                 subscriptions.push(window::frames().map(Message::Frame));
             }
             if let Some(call) = &main.call {
-                subscriptions.push(call.subscription().map(|(id, update)| Message::CallUpdate(id, update)));
+                subscriptions.push(call.subscription(&self.client).map(|(id, update)| Message::CallUpdate(id, update)));
             }
             let needs_tick = main.call.as_ref().is_some_and(|call| call.started_at.is_some())
                 || !main.typing.is_empty()
