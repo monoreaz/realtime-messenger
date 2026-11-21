@@ -93,24 +93,24 @@ Additional sections: D-1 (disk usage) and C-1 (client compatibility) at the end 
 |----|----------|--------|---------|-----|
 | H-1 | High | Confirmed | Logout, session revocation and password change/reset do not invalidate access tokens or open WebSockets | Implemented, tested |
 | H-2 | High | Confirmed | No rate limits on login, registration, password reset or messaging; reset emails have no cooldown | Implemented, tested |
-| H-3 | High | Confirmed | Production serves the **Vite development server** (source code, dev endpoints; Vite 8.2.1 dev-server advisories) | Prepared (static build), tested |
+| H-3 | High | Confirmed | Production serves the **Vite development server** (source code, dev endpoints; Vite 8.2.1 dev-server advisories) | Implemented, tested; deployed 2026-11-21 |
 | H-4 | High | Confirmed | Unauthenticated clients can send unlimited request bodies, which are written to disk **before** authentication | Implemented, tested |
 | M-1 | Medium | Confirmed | Attachments are public by URL, stay downloadable after deletion, and the client-declared type is trusted | Implemented, tested (per-file authorization, Range, cleanup tool) |
 | M-2 | Medium | Confirmed | No security headers (CSP, framing, nosniff, referrer policy) | Implemented in Caddy, tested |
-| M-3 | Medium | Confirmed | The application's PostgreSQL role is a superuser | Prepared and tested on PostgreSQL 18 (not applied to production) |
+| M-3 | Medium | Confirmed | The application's PostgreSQL role is a superuser | Implemented; applied to production 2026-11-21 (Phase C) |
 | L-1 | Low | Confirmed | CORS allows development origins (including a plain-HTTP LAN origin) with credentials | Implemented, tested |
 | L-2 | Low | Confirmed | Interactive API docs and OpenAPI schema are public | Implemented, tested |
-| L-3 | Low | Confirmed (config) | Backend cannot see client IPs (all requests appear to come from the proxy) | Implemented; tailscale serve behaviour verified in its source; live check after deployment |
+| L-3 | Low | Confirmed (config) | Backend cannot see client IPs (all requests appear to come from the proxy) | Implemented; verified live 2026-11-21 for tailscale serve and Cloudflare Tunnel |
 | L-4 | Low | Confirmed | WebSocket frames up to 16 MiB; sockets outlive token expiry; typing events unthrottled | Mostly fixed (frame cap, expiry); typing throttle open |
 | L-5 | Low | Confirmed | A caller can rewrite the text of server-written call-history entries | Implemented, tested |
 | L-6 | Low | Confirmed (config) | Very long session lifetimes (production: non-"remember me" sessions valid ~150 days; example file: 60 h access tokens) | Example fixed; production value is the owner's decision |
-| L-7 | Low | Confirmed (config) | Container/host hardening: root containers, writable source mount with `--reload`, coturn as root on host network, `.env` world-readable | Recommendations |
+| L-7 | Low | Confirmed (config) | Container/host hardening: root containers, writable source mount with `--reload`, coturn as root on host network, `.env` world-readable | Partly fixed 2026-11-21 (no `--reload`, Vite dev server removed, `.env` 0600); rest are recommendations |
 | L-8 | Low | Confirmed (code) | Anyone can add anyone to a group; user blocks do not apply to groups; members cannot leave | Implemented, tested (invitation consent, blocks, rate limit, leave) |
 | L-9 | Low | Code review | Push device token can be re-bound to another account by anyone who knows it | Not fixed |
 | L-10 | Low | Confirmed | `certifi` bundles CA roots flagged as compromised; dependencies and base image unpinned, so rebuilds install untested versions | Fixed: hash-pinned lockfile, digest-pinned base image; exact image tested |
 | L-11 | Low | Confirmed | Account enumeration via registration errors and login timing | Accepted risk; noted |
 | D-1 | Operational | Confirmed | Disk 93% full on messenger-01 | Approved items removed (93% → 50%); verified backups taken |
-| C-1 | Compatibility | Confirmed | Desktop ≤ 0.1.4 downloads media without credentials, so its media breaks once M-1 is deployed | Desktop 0.1.5 prepared and tested (not published); must ship first |
+| C-1 | Compatibility | Confirmed | Desktop ≤ 0.1.4 downloads media without credentials, so its media breaks once M-1 is deployed | Desktop 0.1.5 published 2026-11-21 before the server update |
 
 
 ## 3. Findings in detail
@@ -920,8 +920,10 @@ messenger-01 in a container limited to 2 CPUs and 4 GB, and executed on agent-01
 
 ## 9. Deployment and rollback
 
-**Nothing has been deployed.** Production runs `main` at `6504c55` with backend image
-`012697edef9d`.
+**Status 2026-11-21:** Phases A, B and C are deployed (desktop 0.1.5 published; backend image
+`c8aeb46d2ff3`, static web app, least-privilege database role). Phase D and key rotation are
+still open. The plan below is kept as written for reference; before deployment, production ran
+`main` at `6504c55` with backend image `012697edef9d`.
 
 **Prepared changes:**
 
