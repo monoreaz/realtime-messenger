@@ -20,7 +20,7 @@ only their locations and types are mentioned.
 6. [Dependencies](#6-dependencies)
 7. [What is (and is not) encrypted](#7-what-is-and-is-not-encrypted)
 8. [Tests and results](#8-tests-and-results)
-9. [Deployment and rollback](#9-deployment-and-rollback) (phases 0–4)
+9. [Deployment and rollback](#9-deployment-and-rollback) (release order, phases 0 and A–D)
 10. [Summary](#10-summary)
 
 Additional sections: D-1 (disk usage) and C-1 (client compatibility) at the end of §3.
@@ -100,17 +100,17 @@ Additional sections: D-1 (disk usage) and C-1 (client compatibility) at the end 
 | M-3 | Medium | Confirmed | The application's PostgreSQL role is a superuser | Prepared and tested on PostgreSQL 18 (not applied to production) |
 | L-1 | Low | Confirmed | CORS allows development origins (including a plain-HTTP LAN origin) with credentials | Implemented, tested |
 | L-2 | Low | Confirmed | Interactive API docs and OpenAPI schema are public | Implemented, tested |
-| L-3 | Low | Confirmed (config) | Backend cannot see client IPs (all requests appear to come from the proxy) | Prepared; tailscale-serve part requires verification |
+| L-3 | Low | Confirmed (config) | Backend cannot see client IPs (all requests appear to come from the proxy) | Implemented; tailscale serve behaviour verified in its source; live check after deployment |
 | L-4 | Low | Confirmed | WebSocket frames up to 16 MiB; sockets outlive token expiry; typing events unthrottled | Mostly fixed (frame cap, expiry); typing throttle open |
 | L-5 | Low | Confirmed | A caller can rewrite the text of server-written call-history entries | Implemented, tested |
 | L-6 | Low | Confirmed (config) | Very long session lifetimes (production: non-"remember me" sessions valid ~150 days; example file: 60 h access tokens) | Example fixed; production value is the owner's decision |
 | L-7 | Low | Confirmed (config) | Container/host hardening: root containers, writable source mount with `--reload`, coturn as root on host network, `.env` world-readable | Recommendations |
-| L-8 | Low | Confirmed (code) | Anyone can add anyone to a group; user blocks do not apply to groups; members cannot leave | Implemented, tested (blocks, rate limit, leave); invite consent open |
+| L-8 | Low | Confirmed (code) | Anyone can add anyone to a group; user blocks do not apply to groups; members cannot leave | Implemented, tested (invitation consent, blocks, rate limit, leave) |
 | L-9 | Low | Code review | Push device token can be re-bound to another account by anyone who knows it | Not fixed |
-| L-10 | Low | Confirmed | `certifi` in the backend image bundles CA roots flagged as compromised | Rebuild image |
+| L-10 | Low | Confirmed | `certifi` bundles CA roots flagged as compromised; dependencies and base image unpinned, so rebuilds install untested versions | Fixed: hash-pinned lockfile, digest-pinned base image; exact image tested |
 | L-11 | Low | Confirmed | Account enumeration via registration errors and login timing | Accepted risk; noted |
-| D-1 | Operational | Confirmed | Disk 93% full on messenger-01 | Exact deletion list for approval |
-| C-1 | Compatibility | Confirmed | Desktop ≤ 0.1.4 downloads media without credentials, so its media breaks once M-1 is deployed | Desktop update must ship first |
+| D-1 | Operational | Confirmed | Disk 93% full on messenger-01 | Approved items removed (93% → 50%); verified backups taken |
+| C-1 | Compatibility | Confirmed | Desktop ≤ 0.1.4 downloads media without credentials, so its media breaks once M-1 is deployed | Desktop 0.1.5 prepared and tested (not published); must ship first |
 
 
 ## 3. Findings in detail
@@ -188,11 +188,38 @@ There are two kinds of credentials, and the change touches only how one of them 
 
   Each refresh issues a `sid` token from the same cookie, so after at most 30 minutes no
   legacy token remains.
-- **To end the window immediately** (optional, owner's decision): rotate `JWT_SECRET_KEY`
-  at deployment. All access tokens become invalid at once, and clients transparently get
-  new ones from their refresh cookies. Refresh sessions are database rows and do not depend
-  on the key, so nobody is logged out. Call-decline tokens in flight (60 s) would also be
-  invalidated.
+- **The remaining gap, stated explicitly:**
+  - For up to **30 minutes** after the backend switch (`ACCESS_TOKEN_EXPIRE_MINUTES`), an
+    access token issued *before* the deployment keeps working even after its session is
+    ended by logout, "log out other sessions", revoking that session, a password change or a
+    password reset.
+  - A WebSocket opened with such a token stays open until the token expires.
+  - **Not affected:**
+    - admin blocking: blocked accounts are rejected on every request, as before;
+    - media downloads in browsers: they are checked against the refresh session
+      itself.
+  - After 30 minutes no legacy token can exist.
+- **Key rotation would close the gap immediately, but has not been done** (owner's
+  decision). Verified on agent-01 with the desktop client and a real browser (§8):
+  - **Nobody is logged out.** Refresh sessions are database rows holding a hash of a random
+    token; they do not depend on `JWT_SECRET_KEY`. The tests confirmed:
+    - a running desktop app with "remember me" and one without both carried on: their
+      first 401 triggered a refresh from the cookie;
+    - a restarted desktop app restored its saved session;
+    - an open web tab stayed signed in and renewed its token.
+  - **Rotation means restarting the backend, so every WebSocket drops.**
+    - The desktop app and the *new* web app reconnect: the old token is refused with a
+      policy close, they refresh, and they reconnect (seconds).
+    - A web tab still running the *old* JavaScript retries with its old token until its
+      10-minute refresh or a reload. It shows "connecting" and failing actions in the
+      meantime, but is not logged out.
+  - **Also invalidated:** call-decline tokens in flight (JWT, at most 60 s).
+  - **Not affected:**
+    - email verification and password-reset links (database hashes);
+    - TURN credentials (separate secret);
+    - desktop update signatures (separate key).
+  - **If wanted,** rotate only after desktop 0.1.5 is installed and web tabs have reloaded
+    the new app. Otherwise simply let the 30-minute window pass.
 - **Follow-up:** once the window has passed, a small change can require `sid` and remove
   the legacy path.
 - **If the code is rolled back,** the old code ignores the `sid` claim. Tokens issued by the
@@ -428,23 +455,49 @@ There are two kinds of credentials, and the change touches only how one of them 
 
 ### L-3 · Client IP addresses are lost behind the proxies
 
-- **Status:** confirmed by configuration review.
+- **Status:** confirmed by configuration review · **Fix:** implemented and tested; the
+  tailscale serve hop is verified by reading its source; a live check is due after
+  deployment.
 - **Problem:** uvicorn did not trust Caddy's `X-Forwarded-For`, and Caddy did not trust the
-  local tailscale serve hop. As a result every request appeared to come from a proxy address:
-  no per-client attribution, and per-IP limits would act globally.
-- **Fix (prepared):**
-  - Caddy trusts only private-range peers (`trusted_proxies static private_ranges` with
-    `trusted_proxies_strict`, i.e. the right-most untrusted address). It passes the backend
-    one value (`header_up X-Forwarded-For {client_ip}`).
-  - uvicorn runs with `--proxy-headers --forwarded-allow-ips '*'`. The backend has no
-    published port, so only containers on the Compose network can reach it.
-  - If Caddy is ever exposed directly, client-sent `X-Forwarded-For` is ignored, because
-    public peers are not trusted.
-- **Tests:** in the probe, rotating forged left-most `X-Forwarded-For` values do not avoid the
-  per-IP login limit, and a different client address is unaffected.
-- **Requires verification:** that tailscale serve sets or appends `X-Forwarded-For` with the
-  real tailnet client address. I could not test this without touching production. Check it
-  after deployment (see §9).
+  local tailscale serve hop. Every request appeared to come from a proxy address: no
+  per-client attribution, and per-IP limits would act as global limits.
+- **How a client address travels now:**
+  1. **tailscale serve** (version 1.104.6 on messenger-01; `ipn/ipnlocal/serve.go`) proxies
+     with Go's `httputil.ReverseProxy` in `Rewrite` mode. In that mode Go removes all
+     incoming `Forwarded`/`X-Forwarded-*` headers before `Rewrite` runs. Tailscale then
+     **sets** `X-Forwarded-For` to the connection's real source address: the client's
+     tailnet IP, or the original public address for Funnel. It also removes and re-sets
+     its `Tailscale-User-*` identity headers. A client therefore cannot forge the value,
+     and it is a single address.
+  2. **Caddy** receives the request from the Docker port mapping on `127.0.0.1:8080`. Its peer
+     is the bridge gateway (`172.18.0.1` on `messenger_default`) via `docker-proxy`. Caddy
+     trusts `X-Forwarded-For` only from loopback and the Docker bridge range
+     (`trusted_proxies static 127.0.0.0/8 ::1/128 172.16.0.0/12`). Tailnet and LAN
+     addresses are not trusted, so if Caddy were ever reachable directly, client-sent
+     headers would be ignored. In strict mode Caddy takes the right-most untrusted address
+     and forwards exactly that value (`header_up X-Forwarded-For {client_ip}`).
+  3. **uvicorn** (`--proxy-headers --forwarded-allow-ips '*'`) uses that value. The backend
+     has no published port; only containers on the Compose network reach it.
+- **Do the rate limits tell users apart?**
+  - **Per-IP limits** (login 30 per 5 min, registration, password reset, verification) apply
+    per **tailnet device**: each device has its own tailnet address. Two devices of one
+    person have separate buckets. People sharing one device share one.
+  - Through Funnel or another public setup, people behind the same NAT would share a
+    bucket.
+  - **Per-account limits do not depend on IP:** 10 failed logins per account in 15 min,
+    password change per user, 30 messages per 10 s per user, 10 groups per hour per user,
+    and one reset email per address per minute.
+- **Tests:**
+  - the probe sends rotating forged left-most `X-Forwarded-For` values through the new
+    Caddyfile: they do not avoid the per-IP login limit, and a different client address is
+    unaffected;
+  - `docker network inspect` confirms the production bridge subnet and gateway.
+- **Live check after deployment (Phase B):**
+  1. On one tailnet device, make 31 failed sign-ins within 5 minutes to a test username:
+     expect 429.
+  2. From a second device, sign in normally: expect success.
+  3. If both are limited, the client address is not arriving and the per-IP limits act
+     globally; roll back the Caddyfile or report it.
 
 ### L-4 · WebSocket limits
 
@@ -487,30 +540,56 @@ There are two kinds of credentials, and the change touches only how one of them 
 ### L-8 · Group membership abuse
 
 - **Severity:** Low (High if registration is opened to strangers) · **Status:** confirmed by
-  code review · **Fix:** implemented and tested, except invite consent
+  code review · **Fix:** implemented and tested
 - **Problem:** public registration is supported (self-service sign-up with email
   verification), so strangers can create accounts. Any user could put any other users (up to
   99) into a group. Personal blocks did not apply to groups, and there was no way to leave
   one, so this was a harassment and spam channel.
-- **Fix (`backend/app/api/chats.py`, web `GroupProfileDialog`):**
-  - Nobody can add a user who blocked them, or whom they blocked. The error does not reveal
-    who blocked whom.
-  - Suspended accounts cannot be added.
-  - Group creation is limited to 10 per hour per user.
-  - **`POST /chats/{id}/leave`** with a "Leave group" button in group info. If the last
-    administrator leaves, the longest-standing member becomes administrator; if nobody is
-    left, the group (and its messages) is deleted. Leaving ends access to the group's
-    messages and files immediately.
-  - The web app closes a chat that disappears from the user's list, for example after
-    leaving it on another device.
-- **Tests** (`GroupInviteTests`): blocks in both directions, suspended accounts, the rate
-  limit, leaving, admin hand-over, no access after leaving, last member deletes the group,
-  and private chats cannot be "left". All fail on the original code.
-- **Open (product decision):** invitations that must be accepted, or "who may add me to
-  groups" (everyone / people I have chatted with). Until then, a blocked-then-unblocked or
-  unknown user can still add someone once, and that person has to leave.
-- **Desktop:** the desktop client has no "leave group" button yet (out of scope), so desktop
-  users leave from the web app.
+- **Fix (`backend/app/api/chats.py`, `app/models/group_invitation.py`, migration
+  `a7c3e9d1f2b4`, web app):**
+  - **Invitation consent.** Creating a group makes only the creator a member (and admin).
+    Everyone selected gets a **pending invitation** in the new table `group_invitations`.
+  - **A pending invitation grants nothing.** Every access check (messages, sending, pins,
+    read state, attachments including Range requests, typing, presence, push, the chat
+    list) requires a `chat_members` row. New messages are not delivered to invitees.
+  - **Only the invited user can accept or decline.**
+    - `POST /chats/{id}/invitation/accept|decline` look up the invitation by
+      *(chat, current user)*. Nobody else, not the inviter, not an admin, not an
+      outsider, can act on it.
+    - Accepting creates the membership and deletes the invitation.
+    - Declining deletes it.
+    - Either way it cannot be reused.
+  - `GET /chats/invitations` lists the user's pending invitations (group name, inviter,
+    member count).
+  - **Web app:** a "Group invitations" section above the chat list with Join and Decline.
+    The "New group" dialog now says that people are invited.
+  - **Other rules:**
+    - nobody can invite a user who blocked them, or whom they blocked;
+    - blocking someone withdraws that person's pending invitations to you;
+    - suspended accounts cannot be invited;
+    - 10 groups per hour per user;
+    - anyone can leave a group (`POST /chats/{id}/leave`, "Leave group" button); the
+      admin role passes to the longest-standing member, and an empty group is deleted;
+    - leaving ends access to messages and files immediately.
+  - **Existing groups are unchanged:** their members stay members.
+- **Tests:**
+  - `InvitationConsentTests`:
+    - a pending invitee gets 404 on messages, sending, pins, read and the group's image
+      (also with Range), the group is missing from their chat list, and they receive no
+      new messages;
+    - the inviter and an outsider cannot accept, and an unknown chat gets 404;
+    - after accepting, access works and the invitation is used up;
+    - declined invitations cannot be accepted later;
+    - blocking the inviter withdraws the invitation.
+
+    All 4 fail on the original code.
+  - `GroupInviteTests` (blocks, suspended accounts, rate limit, leave and admin hand-over)
+    and the updated `test_groups.py` (invitees accept first).
+  - Browser: an invited user sees the invitation, the group is absent until Join, then it
+    appears with its messages; 0 CSP violations.
+- **Desktop:** 0.1.5 can list and accept invitations through its API client (used by its
+  tests) but has **no invitation UI yet**. Desktop users join groups from the web app until
+  a later desktop release adds it.
 
 ### L-9 · Push device re-binding
 
@@ -519,12 +598,42 @@ There are two kinds of credentials, and the change touches only how one of them 
   notifications and stop receiving its own. FCM tokens are not public, so the risk is low.
   Fix: refuse to move a token between users, or require a proof from the device.
 
-### L-10 · certifi CA bundle
+### L-10 · certifi CA bundle; unpinned dependencies and base image
 
-- `certifi 2026.7.22` bundles emSign roots with compromised intermediate keys
-  (PYSEC-2026-4320). This affects outbound TLS from the backend (Firebase Cloud Messaging).
-- Rebuild the backend image so `pip` picks up ≥ `2026.10.18`: `requirements.txt` is unpinned,
-  so a rebuild is enough.
+- **Problem:**
+  - `certifi 2026.7.22` bundles emSign roots with compromised intermediate keys
+    (PYSEC-2026-4320). This affects outbound TLS from the backend (Firebase Cloud
+    Messaging).
+  - More generally, `requirements.txt` was unpinned and the Dockerfile used the floating tag
+    `python:3.12-slim`. Any rebuild silently installed whatever versions were newest at the
+    time, untested.
+- **Fix:**
+  - `backend/requirements.lock` holds exact versions **with hashes** for all 67 packages.
+    It was generated from `requirements.txt` with the versions in the tested image as
+    constraints, so the **only** version change is `certifi` → `2026.11.20`.
+  - The Dockerfile installs it with `pip install --require-hashes --only-binary=:all:`, and
+    the base image is pinned by digest
+    (`python:3.12-slim@sha256:5e2bdb1b0d54…a4fa5b`).
+  - `requirements.txt` stays as the human-edited list of direct dependencies; the lockfile
+    is regenerated deliberately.
+- **The exact image intended for deployment:**
+  - `messenger-backend:security-20261121`, image ID `sha256:c8aeb46d2ff3…df88496a`.
+  - Built on messenger-01 with its own tag; production's `messenger-backend:latest`
+    (`012697edef9d…`) is untouched.
+  - Contents: Python 3.12.16, OpenSSL 3.5.7, `certifi 2026.11.20`, and FastAPI, Starlette,
+    uvicorn, SQLAlchemy, PyJWT and python-multipart unchanged.
+  - It was **tested as that image:** its filesystem was exported to agent-01, and the test
+    suite ran on the image's own Python and libraries (via the image's dynamic loader)
+    against PostgreSQL 18.7:
+    - 86 tests as the least-privilege role;
+    - migrations up and down as the migration role;
+    - rollback.
+- **Remaining advisories in the locked set (not applicable, §6):**
+  - `pyasn1`: parses only trusted Google credentials;
+  - `dnspython`: email validation runs without DNS lookups;
+  - `opentelemetry-api`: no incoming trace headers are parsed.
+
+  pip 25.0.1 in the base image is build-time only.
 
 ### L-11 · Account enumeration
 
@@ -535,7 +644,7 @@ There are two kinds of credentials, and the change touches only how one of them 
 
 ### D-1 · Disk usage on messenger-01 (read-only investigation)
 
-- **Status:** the root filesystem is 48 GB, 42 GB used (**93%**, 3.6 GB free).
+- **Status at the time of the investigation:** the root filesystem is 48 GB, 42 GB used (**93%**, 3.6 GB free). The approved cleanup is described under *Cleanup and backups* below.
 - **Why it matters:** PostgreSQL, uploads and Docker share this disk. A full disk stops the
   database, and H-4 (now fixed) would have let anyone fill it.
 - **Method:** `docker system df -v`, `docker volume inspect`, the containers attached to
@@ -587,38 +696,87 @@ docker volume rm desktop_target        # frees ~20 GB -> about 51% used
 # optional, after you confirm: desktop_cargo desktop_rustup, the anonymous 76433891… volume
 ```
 
+#### Cleanup and backups (done 2026-11-21, approved)
+
+- **Removed, after checking each one:**
+  - volume `desktop_target`: exact name confirmed, no container attached, no build
+    running, and all 24,812 files were Cargo output under `debug/`, `release/` and
+    `x86_64-pc-windows-msvc/`;
+  - the stopped test containers `sec-proxy`, `sec-backend`, `sec-db`, `it-proxy`,
+    `it-backend` and `it-db` (each confirmed `exited`);
+  - their networks `sec_audit` and `desktop_it` (confirmed empty).
+
+  No `prune` was used. Disk went from 93% to **50%** used.
+- **Kept as instructed:**
+  - the unidentified PostgreSQL 18 volume `76433891…`;
+  - the production database and uploads;
+  - `messenger_android_signing`;
+  - `desktop_cargo` and `desktop_rustup`.
+- **Desktop builds since then:** compiling the desktop 0.1.5 tests on messenger-01 recreated
+  `desktop_target` (about 7 GB), and the new backend image added about 0.1 GB. Disk is now
+  about 68% used. `desktop_target` can be removed again the same way once the desktop
+  release is built.
+- **Backups:**
+  - **Location:** `~/backups/pre-security-20261121/` on messenger-01, outside the repository.
+    The directory is `0700` and every file is `0600`, owned by the deployment user.
+  - **Contents:**
+    - `messenger-db.dump` (`pg_dump -Fc`) and `messenger-db-globals.sql` (roles);
+    - `uploads.tar.gz` (the uploads volume);
+    - `android-signing.tar.gz`;
+    - `env-and-secrets.tar.gz` (`.env` and `secrets/`);
+    - `production-state.txt` (git `6504c55`, backend image `012697edef9d`);
+    - `SHA256SUMS`.
+  - **Verified usable:**
+    - all checksums match;
+    - the dump was restored into a throwaway PostgreSQL 18 container (no network, tmpfs,
+      memory and CPU limits) and **all 10 tables have identical row counts** to
+      production; only counts were compared, never content;
+    - the uploads archive unpacks to **33 files with identical SHA-256** to the live
+      volume;
+    - the keystore in the signing archive matches the volume;
+    - all 5 config and secret files are byte-identical to the live ones.
+  - **Limitation:** the backups are on the same VM and disk as production. They protect
+    against mistakes during deployment, not against losing the VM. Copying them off the
+    host is the owner's decision; they contain secrets and user data.
+
 ### C-1 · Client compatibility
 
-- **Desktop client 0.1.4 and older: media will stop loading.** Its `Client::download` /
-  `download_to` (`desktop/src/api/client.rs`) fetch `/api/uploads/...` **without**
-  credentials, because the uploads used to be public. After M-1 those requests get 401, so
-  images, avatars and videos fail in the desktop app.
-  - **Fix (desktop; outside this audit's scope):** send the same `Authorization`/cookie
-    headers as the other API calls (`self.authorized(...)`).
-  - **Release order:** release and install the desktop update **before** deploying M-1.
-    Otherwise accept that desktop media is broken until the update.
-- **Desktop client:** no "leave group" UI yet (L-8); users can leave from the web app.
-- **Desktop integration test data:** the demo-seeding test uploads a fake `.mp4`, which the
-  signature check now rejects. This affects test data only.
-- **Web and Android (WebView of the same web app):**
-  - **Tested in Chromium:**
-    - sign-in;
-    - realtime connection;
-    - image and video composer previews (`blob:`);
-    - sending, and display for the recipient (protected route, cookie, Range);
-    - an **audio call** between two browsers (fake microphone, WebRTC over loopback);
-    - session revocation.
+| Client | Current server (`6504c55`) | New server |
+|---|---|---|
+| Desktop ≤ 0.1.4 | Works | Media (images, avatars, videos) fails with 401. Invited users cannot join groups from the app. Everything else works |
+| **Desktop 0.1.5** (prepared, `452fd59`, not published) | **Works** (tested: downloads with credentials against the original backend) | **Works** (tested); invitations are accepted in the web app (no desktop UI yet) |
+| Web, new JavaScript | n/a | Tested (Chromium): sign-in, realtime, media previews and display, audio call, invitations, revocation, key rotation |
+| Web tab still on old JavaScript during the switch | Works | Works. Needs a reload for the invitations UI, the leave button, and quick token renewal after a backend restart |
+| Android app (WebView of the web app) | Works | Should behave like the web app; not tested on a device |
 
-    All with **0 CSP violations**.
-  - **Not tested:**
-    - Firefox and Safari;
-    - the Android WebView on a device;
-    - calls through the TURN relay (ICE traffic is not governed by CSP, but relay
-      connectivity was not exercised);
-    - Android push.
-- **Open web tabs during deployment** keep running the old JavaScript until reloaded.
-  Everything keeps working; only the faster token renewal on WebSocket close (H-1) arrives
-  with the reload.
+**Desktop 0.1.5** (`desktop/src/api/client.rs`):
+- `Client::download` and `download_to` now request media through the authenticated path
+  (Bearer token plus refresh cookie, with the usual refresh-on-401) **only** if
+  `is_server_media(url)` holds: same scheme, host and port as the configured server, no
+  user info, and the path under `/api/uploads/`.
+- Every other URL is fetched without credentials. reqwest additionally drops
+  `Authorization`/`Cookie` on cross-host redirects.
+- **Tests (run on agent-01 against the new backend):**
+  - **Unit:** the trust check refuses other hosts, look-alike hosts, scheme or port changes,
+    user info, non-upload paths and `../` normalization.
+  - **Live `media_needs_a_member_session`:**
+    - members download images and videos;
+    - an unrelated user gets 404;
+    - a byte range returns 206 with the right bytes, and the unrelated user's range gets
+      404;
+    - no session means no access;
+    - after logout, and after "log out other sessions" from another device, downloads
+      fail;
+    - a URL on another origin receives **no** `Authorization` or `Cookie` header (a local
+      listener records the request).
+  - The existing desktop end-to-end suite passes against the new backend. It was updated
+    for invitations and for the 30-messages-per-10-s limit, which it now respects by
+    backing off.
+  - The JWT-rotation test passes (H-1).
+  - clippy shows no new warnings; the Windows type-check passes; `Cargo.lock` is unchanged
+    (`--locked`).
+- **Release order:** publish 0.1.5 and let installed apps update **before** the backend
+  switch. The app checks for updates at start-up.
 
 ## 4. Checks completed without findings
 
@@ -670,32 +828,34 @@ users A, B and C.
 
 ## 5. Not tested / requires verification
 
-**Tested since the first version of this report:**
-
-- PostgreSQL 18 (18.7; production runs 18.6);
-- calls and image/video previews under the CSP (Chromium);
-- media authorization including Range;
-- group changes;
-- least-privilege roles.
+**Verified since the previous version of this report:**
+- tailscale serve's client-address handling (source of the installed version);
+- the exact deployment image;
+- desktop media against both servers;
+- key rotation with the desktop client and a browser;
+- invitation consent;
+- backups, by restore.
 
 **Still open:**
-
-- **tailscale serve `X-Forwarded-For` behaviour** (L-3). Check after deployment that two
-  tailnet devices are rate-limited independently.
-- **Browsers and devices:** Firefox, Safari and the Android WebView on a real device were
-  not tested under the new CSP and media cookie. Neither were calls through the TURN relay
-  (as opposed to direct ICE).
-- **Internet exposure:** the app is tailnet-only today. A public setup (Funnel or a port
-  forward) needs §9's checks repeated, plus TLS and HSTS checks at the real edge.
+- **Live client-IP check** after Phase B (L-3: two devices, one rate-limited, the other
+  not).
+- **Desktop 0.1.5 on Windows.** The tests ran on a Linux build; the Windows build passed only
+  its type-check. CI builds the Windows installer when the release is tagged. Before
+  publishing, install the draft on Windows, then open an image, play a video, open the
+  Settings dialog, log out and back in.
+- **Browsers and devices:** Firefox, Safari, and the Android WebView on a real device.
+  Calls through the TURN relay.
+- **Desktop invitation UI:** not implemented. Desktop users join groups from the web app.
+- **Internet exposure:** the app is tailnet-only. A public setup (Funnel or a port
+  forward) needs the verification steps in §9 repeated at the real edge, plus TLS and HSTS
+  checks.
 - **TURN/coturn configuration**, **Firebase push** and **SMTP delivery** were not
   exercised.
-- **Load and denial of service** were not tested, as instructed. Limits were verified
-  functionally only.
+- **Load and denial of service** were not tested, as instructed.
 - **Races** were reviewed, not tested: concurrent double use of one password-reset token;
-  concurrent refresh rotation; leaving a group while being re-added.
-- **Production data integrity after the incident:** not verified beyond the logs. See the
-  incident note in §1 and the optional checks in §9 (Phase 0).
-- **Desktop and Android clients:** out of scope apart from the compatibility notes in C-1.
+  concurrent refresh rotation; accepting an invitation while the group is deleted.
+- **Production data integrity after the incident:** not verified beyond the logs. The
+  verified dump from 2026-11-21 now gives a reference point for later comparisons.
 
 ## 6. Dependencies
 
@@ -732,85 +892,185 @@ SQLAlchemy 2.1.4, websockets 17.2 and React 19.2.8 had no known advisories at au
 
 ## 8. Tests and results
 
-All active tests ran on agent-01 inside the limited sandbox (§1), with synthetic users only.
+All active tests ran on agent-01 inside the limited, network-less sandbox (§1), with
+synthetic users and throwaway databases. Desktop test binaries were compiled on
+messenger-01 in a container limited to 2 CPUs and 4 GB, and executed on agent-01.
 
-| Suite | Code / database | Result |
+| Suite | Code / environment | Result |
 |---|---|---|
-| Backend suite (`python -m unittest discover`): 49 existing + 30 new security tests + 3 privilege tests | fixed · PostgreSQL 16.2 (superuser) | **82 run: 79 passed, 3 privilege tests skipped** (they apply only to the app role) |
-| Same suite as the least-privilege `messenger_app` role | fixed · **PostgreSQL 18.7** | **82 passed** |
-| Migrations as `messenger_migrator` (downgrade/upgrade); refused as `messenger_app`; rollback script; suite again as superuser | fixed · PostgreSQL 18.7 | OK; 82 passed after rollback (3 privilege tests skipped); row counts unchanged |
-| New security tests (`test_security.py`, `test_media_groups.py`) | **original** `main` (`6504c55`) | **28 of 30 fail** (each reproduces its issue); the 2 that pass check behaviour that was already correct (path traversal refused, Range for members) |
-| Frontend `tsc -b` / `oxlint` / `node --test` (9) / production build (Vite 8.2.6) | fixed | all OK |
-| `npm audit` (lockfile) | fixed | 0 vulnerabilities |
-| `caddy validate` | fixed | valid |
-| End-to-end probe `tests/security_probe.py` (40 checks) through Caddy + uvicorn (production flags) + PostgreSQL | fixed | **40 secure, 0 vulnerable** |
+| Backend suite (49 existing + 34 new security tests + 3 privilege tests) | final code · PostgreSQL 16.2 | **86 run: 83 passed, 3 skipped** (privilege tests apply only to the app role) |
+| Same suite as `messenger_app` (least privilege), with role script, migrations as migrator (incl. new `a7c3e9d1f2b4`), app role refused, rollback, suite again | final code · **PostgreSQL 18.7** | **86 passed**; migrations OK; `InsufficientPrivilege` for the app role; rollback OK; row counts unchanged |
+| Same PostgreSQL 18.7 sequence on the **exact deployment image** `messenger-backend:security-20261121` (`c8aeb46d2ff3`): the image's own Python 3.12.16 and libraries | final code + image | **86 passed** as app role; migrations and rollback OK |
+| New security tests on the **original** code (`6504c55`) | original | `test_security`/`test_media_groups`: **28 of 30 fail**; invitation consent: **4 of 4 fail** (each reproduces its issue). The 2 that pass check behaviour that was already correct |
+| Frontend `tsc -b` / `oxlint` / `node --test` (9) / production build (Vite 8.2.6) | final | all OK |
+| `npm audit` · `pip-audit` of the lockfile | final | 0 npm vulnerabilities · only the non-applicable Python advisories (§6) |
+| `caddy validate` | final Caddyfile | valid |
+| End-to-end probe `tests/security_probe.py` (40 checks) through Caddy + uvicorn (production flags) | final | **40 secure, 0 vulnerable** |
 | Same probe | original code + original Caddyfile | 19 secure, **21 vulnerable** |
-| Chromium, one user: sign-in, realtime, styles under CSP, revoked session signs the tab out | fixed | OK, 0 CSP violations |
-| Chromium, two users: image and video previews, recipient display via protected media (cookie + Range), audio call connects and timer runs | fixed | **8/8 OK, 0 CSP violations** |
-| `docker compose config` with dummy values: app and migrator credential fallbacks | fixed | OK |
+| Chromium, two users: image and video previews, recipient display via protected media (cookie + Range), audio call | final | **8/8, 0 CSP violations** |
+| Chromium: sign-in, realtime, styles under CSP; revoked session signs the tab out | final | OK, 0 CSP violations |
+| Chromium: group invitation shown, group absent until Join, then present with messages | final | **4/4, 0 CSP violations** |
+| Chromium: open tab during JWT key rotation (backend restart with a new key) | final | stays signed in, back online, token renewed from cookie, still signed in after reload |
+| Desktop 0.1.5: unit tests (incl. credential trust check) | Linux build | **38 passed** |
+| Desktop 0.1.5: existing end-to-end suite, media access test, JWT-rotation test | new backend | **all pass** |
+| Desktop 0.1.5 media download against the **original** backend | original | downloads work (stops only at "unrelated user gets 404", which the old public server cannot do) |
+| Desktop 0.1.5: clippy · Windows type-check · `--locked` | messenger-01 build | no new warnings · OK · OK |
+| Backups: checksums, restore into PostgreSQL 18 (row counts), archive contents (checksums) | messenger-01, throwaway containers | all identical |
+| `docker compose config` with dummy values: credential fallbacks | final compose.yml | OK |
 
 ## 9. Deployment and rollback
 
-Nothing has been deployed. Production runs `main` at `6504c55`. Each phase can be approved,
-run and rolled back on its own. All commands run in `~/messenger` on messenger-01.
+**Nothing has been deployed.** Production runs `main` at `6504c55` with backend image
+`012697edef9d`.
 
-**Phase 0: preparation (no user impact)**
+**Prepared changes:**
 
-1. **Disk:** remove exactly the items approved from D-1, e.g.
-   `docker rm sec-proxy sec-backend sec-db it-proxy it-backend it-db`,
-   `docker network rm sec_audit desktop_it`, `docker volume rm desktop_target`.
-   Check that `df -h /` shows at least 10 GB free.
-2. **Backups:**
-   - `docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > ~/backups/messenger-pre-security-$(date +%Y%m%d).dump`
-   - an archive of the uploads volume (`messenger_avatar_data`);
-   - copies of `.env` and `secrets/`, kept private (`chmod 600`);
-   - **a copy of the `messenger_android_signing` volume.**
-3. **Optional read-only integrity checks after the incident:**
-   - `docker compose exec db pg_amcheck -U "$POSTGRES_USER" -d "$POSTGRES_DB" --heapallindexed`
-   - compare per-table row counts with the 11:02 dump, restored into a throwaway database
-     (anything newer than 11:02 can't be compared).
-4. **Desktop client** (C-1): release and install the update that sends credentials for media
-   downloads, or accept broken desktop media until it ships.
+| Where | What |
+|---|---|
+| messenger-01 `~/messenger-security` | branch `security/audit`: `3b5d89c`, `782e573`, `6d1a4a5`, and the report commit; not merged, not pushed |
+| messenger-01 Docker | backend image `messenger-backend:security-20261121` (`sha256:c8aeb46d2ff3…`) |
+| agent-01 `~/work/messenger-desktop` | desktop 0.1.5: `feature/desktop` at `452fd59`; not pushed, not tagged |
 
-**Phase 1: application code (no database change, nobody logged out)**
+Each phase below needs your approval. Run the commands in `~/messenger` on messenger-01
+unless noted otherwise.
+
+### Release order
+
+The order matters, because of compatibility (§3 C-1):
+
+1. **Phase A, desktop 0.1.5 first.** It works with the current *and* the new server.
+2. **Phase B, backend and web.** Desktop ≤ 0.1.4 loses media from this moment, so wait
+   until active desktop sessions run 0.1.5.
+3. **Phase C, database roles.** Independent of the code; after B is confirmed.
+4. **Phase D, orphaned uploads.**
+5. **Later, optional:** key rotation, the follow-up that requires `sid`, and removing
+   `desktop_target` again.
+
+### Phase 0: preparation (done)
+
+- Approved disk cleanup (§3 D-1).
+- Verified backups in `~/backups/pre-security-20261121/`.
+- **Open decisions:**
+  - an off-host copy of the backups;
+  - the optional read-only integrity check
+    `docker compose exec db pg_amcheck -U "$POSTGRES_USER" -d "$POSTGRES_DB" --heapallindexed`.
+
+### Phase A: desktop 0.1.5 (release procedure; publishes a release)
+
+1. Push and tag:
+   - **on agent-01:**
+
+     ```sh
+     cd ~/work/messenger-desktop
+     git tag desktop-v0.1.5
+     git push vm feature/desktop desktop-v0.1.5
+     ```
+
+   - **on messenger-01:**
+
+     ```sh
+     git -C ~/messenger push origin feature/desktop desktop-v0.1.5
+     ```
+
+   CI builds the Windows installer and a **draft** release.
+2. Install the draft on Windows and run the smoke test in §5. Then publish the draft.
+3. Wait until desktop sessions have updated (read-only, counts only):
+
+   ```sh
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select substring(user_agent from '"'"'MessengerDesktop/[0-9.]+'"'"') as version, count(*) from auth_sessions where revoked_at is null and expires_at > now() and user_agent like '"'"'MessengerDesktop/%'"'"' group by 1"' </dev/null
+   ```
+
+   On 2026-11-21 at 01:15 UTC this showed **4 active desktop sessions: 3 on 0.1.1 and 1 on
+   0.1.4**. All of them would lose media at Phase B. Proceed when they show 0.1.5, or when
+   you accept the breakage for the remaining old installs; signing in again after updating
+   creates a 0.1.5 session.
+
+**Rollback:** unpublish or replace the release. 0.1.5 also works with the current
+server, so no server change is involved.
+
+### Phase B: backend and web (brief backend restart; nobody logged out)
 
 ```sh
 cd ~/messenger
-git merge --ff-only security/audit        # backend --reload picks up the code (bind mount)
-docker compose run --rm frontend-build    # npm ci (Vite 8.2.6) + build -> frontend/dist
-docker compose up -d backend              # new uvicorn flags; NO --build: same image, same dependency versions as tested
-docker compose up -d caddy                # new Caddyfile, serves frontend/dist
-docker compose stop frontend && docker compose rm -f frontend    # dev server retired
+git status --short && git rev-parse --short HEAD          # expect clean, 6504c55
+df -h / | tail -1                                          # expect >= 10 GB free
+
+# 1. Migration first: adds group_invitations; the running old code ignores the table.
+docker compose run --rm --no-deps -T -v ~/messenger-security/backend:/app backend alembic upgrade head </dev/null
+docker compose run --rm --no-deps -T -v ~/messenger-security/backend:/app backend alembic current </dev/null   # a7c3e9d1f2b4 (head)
+
+# 2. Code (backend --reload picks up the bind-mounted code at once).
+git merge --ff-only security/audit
+
+# 3. Image: keep the current one for rollback, switch to the tested one (no rebuild).
+docker tag messenger-backend:latest messenger-backend:pre-security-20261121
+docker tag messenger-backend:security-20261121 messenger-backend:latest
+
+# 4. Web app as static files.
+docker compose run --rm frontend-build
+
+# 5. Restart with the new image, flags and Caddy configuration; retire the dev server.
+docker compose up -d backend
+docker inspect -f '{{.Image}}' messenger-backend-1             # sha256:c8aeb46d2ff3...
+docker compose up -d caddy
+docker compose stop frontend && docker compose rm -f frontend
 ```
 
-Optional, at the same time: set a new `JWT_SECRET_KEY` in `.env` before `up -d backend`.
-That ends the legacy-token window immediately (§3 H-1); nobody is logged out.
-
-**Verify Phase 1**
+**Verify Phase B**
 
 ```sh
+curl -s http://127.0.0.1:8080/api/health                                           # {"status":"ok",...}
 curl -sI http://127.0.0.1:8080/ | grep -iE 'content-security-policy|x-frame-options|x-content-type-options'
-curl -s http://127.0.0.1:8080/src/main.tsx | head -c 40; echo      # "<!doctype html>" (SPA fallback), not source
+curl -s http://127.0.0.1:8080/src/main.tsx | head -c 40; echo                      # "<!doctype html>", not source
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/api/docs                # 404
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/api/uploads/messages/x.png  # 401
-curl -s http://127.0.0.1:8080/api/health                                           # {"status":"ok",...}
 ```
 
-Then, in a browser on the tailnet:
-- sign in and send a text, an image and a video;
-- open an existing image and seek in an existing video;
+Then in browsers on the tailnet, and in desktop 0.1.5:
+- sign in;
+- send a text, an image and a video;
+- open an older image and seek in an older video;
 - make a short audio call;
-- check the devtools console for CSP violations;
+- check the browser console for CSP violations;
+- create a test group: invitees see the invitation, and the group appears only after Join;
+- leave the test group;
 - use "log out other sessions" from a second device and confirm the first device is signed
-  out;
-- leave a test group.
+  out.
 
-**Phase 2: least-privilege database roles** (after Phase 1 is confirmed)
+Finally, the **L-3 live check** (§3).
 
-1. Generate two URL-safe passwords (`openssl rand -hex 24`) and add them to `.env`:
-   `APP_DB_USER=messenger_app`, `APP_DB_PASSWORD=…`, `MIGRATOR_DB_USER=messenger_migrator`,
-   `MIGRATOR_DB_PASSWORD=…`.
-2. Create the roles and transfer ownership (one transaction; idempotent):
+**Effect on users:**
+- The backend restarts for a few seconds and realtime connections reconnect.
+- Nobody is logged out.
+- For up to 30 minutes, tokens issued before the switch can't be revoked (§3 H-1).
+- Open web tabs should be reloaded to get the new app.
+
+**Rollback B**
+
+```sh
+cd ~/messenger
+docker tag messenger-backend:pre-security-20261121 messenger-backend:latest
+git reset --keep 6504c55                 # only if nothing else was committed to main since
+docker compose up -d backend caddy frontend      # old code, old flags, Caddy -> Vite dev server again
+# Optional: drop the invitations table (loses pending invitations).
+# docker compose run --rm --no-deps -T -v ~/messenger-security/backend:/app backend alembic downgrade f6b2d8c4a1e9 </dev/null
+```
+
+**Compatibility after rolling back B:**
+- The old code ignores `group_invitations`. Invitations still pending at that point are
+  stranded; the invitees are simply not members.
+- Groups created in the meantime keep the members who accepted.
+- Tokens issued by the new code carry `sid`, which the old code ignores. They stay valid
+  until they expire.
+- Desktop 0.1.5 keeps working.
+- Media becomes public by URL again, and the other fixes are gone.
+- No data migration needs undoing.
+
+### Phase C: least-privilege database roles (after B is confirmed)
+
+1. Add to `.env`, with two new values from `openssl rand -hex 24`: `APP_DB_USER=messenger_app`,
+   `APP_DB_PASSWORD=…`, `MIGRATOR_DB_USER=messenger_migrator`, `MIGRATOR_DB_PASSWORD=…`.
+2. Create the roles:
 
    ```sh
    set -a; . ./.env; set +a
@@ -819,86 +1079,87 @@ Then, in a browser on the tailnet:
      < ops/db/least-privilege.sql
    ```
 
-3. `docker compose up -d backend`: the backend now connects as `messenger_app`.
-4. Verify: `/api/health` is ok, sign-in and messaging work, and
-   `docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select usename, count(*) from pg_stat_activity group by 1"`
-   shows `messenger_app`.
-5. From now on, run migrations with `docker compose run --rm migrate`, not with the backend
-   container.
+3. `docker compose up -d backend`
+4. Verify:
+   - `/api/health` is ok, and sign-in and messaging work;
+   - `pg_stat_activity` shows the backend connected as `messenger_app`.
+5. From then on, run migrations with `docker compose run --rm migrate`.
 
-**Phase 3: orphaned uploads** (after the Phase 0 uploads backup)
+**Rollback C:**
+1. Remove `APP_DB_*`/`MIGRATOR_DB_*` from `.env`.
+2. `docker compose up -d backend`
+3. Run `ops/db/least-privilege-rollback.sql` as in its header comment. This changes
+   ownership and grants only; tested on PostgreSQL 18.
+
+### Phase D: orphaned uploads
 
 ```sh
-docker compose exec backend python -m app.cli.cleanup_uploads           # dry run: counts and sizes
-docker compose exec backend python -m app.cli.cleanup_uploads --delete  # after reviewing the numbers
+docker compose exec backend python -m app.cli.cleanup_uploads            # dry run: counts and sizes
+docker compose exec backend python -m app.cli.cleanup_uploads --delete   # after reviewing the numbers
 ```
 
-**Phase 4: certifi refresh** (L-10; separate because it changes dependency versions)
+**Rollback D:** restore files from `~/backups/pre-security-20261121/uploads.tar.gz`.
 
-Rebuild the backend image, run the backend test suite against the new image, then
-`docker compose up -d backend`.
+### Last resort: restoring data
 
-**Rollback**
-
-- **Phase 2:**
-  1. Remove or comment out `APP_DB_*`/`MIGRATOR_DB_*` in `.env`.
-  2. `docker compose up -d backend` (the backend uses the superuser again).
-  3. `docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v db="$POSTGRES_DB"' < ops/db/least-privilege-rollback.sql`
-
-  Data is untouched; only ownership and grants change. Tested on PostgreSQL 18.
-- **Phase 1:**
-  1. `git revert --no-edit 6504c55..<last audit commit>`
-  2. `docker compose up -d backend caddy frontend`
-
-  This restores the previous code, Caddyfile and dev server. No migrations to undo; nobody is
-  logged out. New-style tokens stay valid until they expire under the old code.
-- **Phase 3:** restore files from the uploads backup.
+`pg_restore` from `messenger-db.dump` returns the database to its state at 2026-11-21 00:07 UTC.
+Anything written after that would be lost, so use it only if the database itself is
+damaged.
 
 ## 10. Summary
 
 1. **What was checked:**
-   - authentication, sessions and token handling;
-   - authorization on every REST route, every WebSocket action and every media file;
+   - authentication, sessions and tokens;
+   - authorization on every REST route, WebSocket action, media file and group invitation;
    - XSS, SQL and command injection, SSRF, CSRF, CORS, WebSocket origin, token storage, URL
      leaks and error leaks;
    - uploads, Range requests and abuse limits;
-   - group invites;
    - secrets in all of git history, the client bundle and the image;
-   - dependency advisories, judged for applicability;
-   - deployment: ports, exposure, proxies, containers, the database role and disk.
+   - dependencies (advisories judged for applicability, now hash-pinned);
+   - deployment: ports, exposure, proxies and client IPs through tailscale serve,
+     containers, the database role and disk;
+   - desktop media compatibility;
+   - JWT key rotation.
 
-   Active testing used synthetic users on isolated databases, including PostgreSQL 18, and
-   two real browsers under the new CSP.
+   Active testing used synthetic users on isolated databases (PostgreSQL 16 and 18), the
+   exact deployment image, two real browsers under the CSP, and the desktop client against
+   both the old and the new server.
 2. **Confirmed vulnerabilities:**
-   - 4 High: H-1 session revocation, H-2 rate limits, H-3 Vite dev server in production,
-     H-4 unauthenticated unlimited uploads;
-   - 3 Medium: M-1 media access, M-2 security headers, M-3 superuser database role;
+   - 4 High: session revocation, rate limits, Vite dev server in production,
+     unauthenticated unlimited uploads;
+   - 3 Medium: media access, security headers, superuser database role;
    - 11 Low;
-   - plus D-1 (disk 93% full) and C-1 (desktop media compatibility).
+   - plus disk (D-1) and desktop compatibility (C-1).
 3. **Fixes implemented and tested:**
-   - H-1 to H-4, M-1, M-2, L-1, L-2, L-5;
-   - L-8 except invite consent;
-   - M-3 prepared and tested on PostgreSQL 18, not applied;
-   - L-3 and L-4 partly.
+   - all High and Medium findings;
+   - L-1, L-2, L-3 (live check pending), L-5, L-8 with invitation consent, and L-10 with
+     pinning;
+   - L-4 mostly;
+   - M-3 prepared and tested, to be applied in Phase C;
+   - desktop 0.1.5 prepared and tested.
 
-   30 new security tests fail on the original code (28 of 30) and all pass on the fixed
-   code. The suite passes as the least-privilege role on PostgreSQL 18. The end-to-end
-   probe finds 0 vulnerabilities (21 on the original), and the browser checks show 0 CSP
-   violations.
+   The new tests fail on the original code and pass on the fixed code. The exact image
+   passes on PostgreSQL 18 as the least-privilege role. The probe finds 0 vulnerabilities
+   (21 on the original). The browser checks show 0 CSP violations.
 4. **Remaining unknowns:**
-   - tailscale serve's `X-Forwarded-For` handling;
-   - Firefox, Safari and the Android WebView under the CSP;
-   - calls through TURN;
-   - TURN, push and SMTP configuration;
+   - the live client-IP check;
+   - desktop 0.1.5 on Windows (smoke test before publishing);
+   - Firefox, Safari and the Android WebView;
+   - TURN, push and SMTP;
    - a future internet-facing setup;
    - load behaviour;
-   - production data integrity after the incident beyond what the logs show.
+   - production data integrity after the incident beyond the logs.
 5. **Still blocking a public release:**
-   - deploying Phases 1–3, including the database roles;
-   - the desktop update before Phase 1 (C-1);
-   - freeing disk space (D-1);
-   - invite consent or "who can add me" for groups, if strangers can sign up;
-   - verifying L-3 and repeating §9's checks in the public setup.
-6. **Deployment and rollback:** see §9. Phases 0–4, each with its own verification and
-   rollback. No schema migrations. Nobody is logged out. **Not deployed; awaiting
-   approval.**
+   - Phases A–D;
+   - the L-3 live check;
+   - repeating §9's verification in the public setup;
+   - desktop users can't accept group invitations in the app (they need the web app) until
+     a desktop UI exists.
+6. **Deployment and rollback:** see §9:
+   - desktop 0.1.5 first;
+   - then the migration plus backend and web on the tested image, with the previous image
+     kept for rollback;
+   - then the database roles and the upload cleanup.
+
+   Every phase has its own verification and rollback. Nobody is logged out.
+   **Not deployed; awaiting approval.**
