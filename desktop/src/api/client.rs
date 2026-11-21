@@ -452,6 +452,19 @@ impl Client {
         self.send_json::<(), _>(Method::POST, &format!("/chats/private/{user_id}"), None, "Could not create chat").await
     }
 
+    /// Chat ids of groups this user was invited to but has not joined (the server only adds
+    /// people to a group when they accept). Used by the live tests; the UI comes later.
+    #[allow(dead_code)]
+    pub async fn group_invitations(&self) -> Result<Vec<String>> {
+        let invitations: Vec<serde_json::Value> = self.get_json("/chats/invitations", "Could not load group invitations").await?;
+        Ok(invitations.iter().filter_map(|invitation| invitation["chat_id"].as_str().map(str::to_owned)).collect())
+    }
+
+    #[allow(dead_code)]
+    pub async fn accept_group_invitation(&self, chat_id: &str) -> Result<Chat> {
+        self.send_json::<(), _>(Method::POST, &format!("/chats/{chat_id}/invitation/accept"), None, "Could not join the group").await
+    }
+
     pub async fn create_group(&self, name: &str, member_ids: &[String], username: Option<&str>, description: Option<&str>) -> Result<Chat> {
         let body = serde_json::json!({
             "name": name, "member_ids": member_ids,
@@ -579,11 +592,61 @@ impl Client {
     // Media
     // ----------------------------------------------------------------------------
 
-    /// Downloads a media file (uploads are public static files on the server).
+    /// Whether `url` is an uploaded file on the configured messenger server. Only such URLs
+    /// are fetched with the session's credentials; anything else (another host, port or
+    /// scheme, embedded user info, or a path outside `/api/uploads/`) is fetched without
+    /// them. reqwest also drops `Authorization`/`Cookie` if a response redirects elsewhere.
+    pub(crate) fn is_server_media(&self, url: &str) -> bool {
+        let (Ok(target), Ok(server)) = (reqwest::Url::parse(url), reqwest::Url::parse(&self.inner.server)) else {
+            return false;
+        };
+        let uploads = format!("{}/api/uploads/", server.path().trim_end_matches('/'));
+        target.scheme() == server.scheme()
+            && target.host_str() == server.host_str()
+            && target.port_or_known_default() == server.port_or_known_default()
+            && target.username().is_empty()
+            && target.password().is_none()
+            && target.path().starts_with(&uploads)
+    }
+
+    /// GET for media: authenticated (and authorized per file by the server) for our own
+    /// uploads, anonymous for anything else.
+    async fn media_get(&self, url: &str, timeout: Option<Duration>) -> Result<Response> {
+        let request = |http: &reqwest::Client| {
+            let request = http.get(url);
+            match timeout {
+                Some(timeout) => request.timeout(timeout),
+                None => request,
+            }
+        };
+        if self.is_server_media(url) {
+            self.authorized(request).await
+        } else {
+            Ok(request(&self.inner.http).send().await?)
+        }
+    }
+
+    /// Downloads a media file. The server only serves uploads to signed-in users who may
+    /// see them (members of the message's chat), so our own media is requested with the
+    /// session's credentials.
     pub async fn download(&self, url: &str) -> Result<Vec<u8>> {
-        let response = self.inner.http.get(url).send().await?;
+        let response = self.media_get(url, None).await?;
         let response = check(response, "Could not download file").await?;
         Ok(response.bytes().await?.to_vec())
+    }
+
+    /// A byte range of a media file (what video players request when seeking).
+    #[cfg(test)]
+    pub async fn download_range(&self, url: &str, first: u64, last: u64) -> Result<(u16, Vec<u8>)> {
+        let range = format!("bytes={first}-{last}");
+        let response = if self.is_server_media(url) {
+            self.authorized(|http| http.get(url).header(reqwest::header::RANGE, &range)).await?
+        } else {
+            self.inner.http.get(url).header(reqwest::header::RANGE, &range).send().await?
+        };
+        let status = response.status().as_u16();
+        let response = check(response, "Could not download file").await?;
+        Ok((status, response.bytes().await?.to_vec()))
     }
 
     /// Streams a download to `target`, reporting progress as (received, total).
@@ -591,7 +654,7 @@ impl Client {
         use futures::StreamExt;
         use tokio::io::AsyncWriteExt;
 
-        let response = self.inner.http.get(url).timeout(Duration::from_secs(60 * 30)).send().await?;
+        let response = self.media_get(url, Some(Duration::from_secs(60 * 30))).await?;
         let response = check(response, "Could not download file").await?;
         let total = response.content_length();
         let partial = target.with_extension("part");
@@ -727,6 +790,22 @@ mod tests {
         let client = Client::new("https://example.net", None);
         assert_eq!(client.ws_url(), "wss://example.net/ws");
         assert_eq!(client.media_url("/uploads/a.png"), "https://example.net/api/uploads/a.png");
+        // Credentials go only to our own uploads.
+        assert!(client.is_server_media("https://example.net/api/uploads/messages/a.png"));
+        assert!(client.is_server_media("https://example.net:443/api/uploads/avatars/a.png"));
+        for url in [
+            "https://evil.example/api/uploads/messages/a.png",
+            "https://example.net.evil.example/api/uploads/a.png",
+            "http://example.net/api/uploads/a.png",
+            "https://example.net:8443/api/uploads/a.png",
+            "https://user:pw@example.net/api/uploads/a.png",
+            "https://example.net/api/auth/refresh",
+            "https://example.net/api/uploads/../auth/refresh",
+            "https://example.net/uploads/a.png",
+            "not a url",
+        ] {
+            assert!(!client.is_server_media(url), "{url}");
+        }
         assert_eq!(client.media_url("https://cdn/x.png"), "https://cdn/x.png");
     }
 

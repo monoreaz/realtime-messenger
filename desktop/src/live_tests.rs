@@ -162,8 +162,15 @@ async fn end_to_end_against_backend() {
     assert!(empty.message.to_lowercase().contains("empty"), "{}", empty.message);
 
     // --- Pagination (50 per page, `before_message_id`).
+    // The server allows 30 messages per 10 s per user (429 beyond that): back off and retry.
     for index in 0..55 {
-        alice.send_message(&chat.id, &format!("bulk {index}"), None).await.unwrap();
+        loop {
+            match alice.send_message(&chat.id, &format!("bulk {index}"), None).await {
+                Ok(_) => break,
+                Err(error) if error.status == Some(429) => tokio::time::sleep(Duration::from_millis(500)).await,
+                Err(error) => panic!("{}", error.message),
+            }
+        }
     }
     let latest = bob.messages(&chat.id, None).await.unwrap();
     assert_eq!(latest.len(), 50);
@@ -205,8 +212,14 @@ async fn end_to_end_against_backend() {
     let carol_user = alice.search_users("carol").await.unwrap().into_iter().find(|user| user.username == "carol").unwrap();
     let group = alice.create_group("Desktop team", &[bob_user.id.clone(), carol_user.id.clone()], Some("desktop_team"), Some("Testing")).await.unwrap();
     assert!(group.is_group());
-    assert_eq!(group.members.len(), 3);
+    // Invited people join only by accepting; until then the creator is the only member.
+    assert_eq!(group.members.len(), 1);
     assert!(group.is_admin(&me.id));
+    assert_eq!(carol.group_invitations().await.unwrap(), std::slice::from_ref(&group.id));
+    assert_eq!(carol.send_message(&group.id, "not yet", None).await.unwrap_err().status, Some(404));
+    for invitee in [&bob, &carol] {
+        assert!(invitee.accept_group_invitation(&group.id).await.unwrap().members.len() >= 2);
+    }
     wait_for(&mut carol_events, "chat.created", |event| matches!(event, Event::Server(ServerEvent::ChatCreated { chat_id }) if *chat_id == group.id).then_some(())).await;
     let renamed = alice.update_group(&group.id, &GroupDetails { name: "Desktop crew".into(), username: Some("desktop_crew".into()), description: None }).await.unwrap();
     assert_eq!(renamed.name.as_deref(), Some("Desktop crew"));
@@ -309,7 +322,8 @@ async fn seed_demo_data() {
     image::RgbaImage::from_fn(360, 640, |_, y| image::Rgba([40, (y / 3) as u8, 120, 255])).save(&tall).unwrap();
     alice.send_media(&chat.id, &tall, "Our new office from the street", None).await.unwrap();
     let clip = dir.path().join("clip.mp4");
-    std::fs::write(&clip, b"not really a video, just bytes for layout tests").unwrap();
+    // The server checks file signatures: an MP4 header followed by filler bytes.
+    std::fs::write(&clip, [b"\x00\x00\x00\x18ftypmp42".as_slice(), b"filler bytes for layout tests"].concat()).unwrap();
     alice.send_media(&chat.id, &clip, "", None).await.unwrap();
     carol.mark_read(&chat.id).await.unwrap();
     // Connecting once records carol's last seen, so alice sees "Last seen …" for her.
@@ -432,4 +446,160 @@ async fn call_interop_with_browser() {
     eprintln!("INTEROP B (desktop→browser): sent {sent}, received {received}");
     assert!(sent > 100 && received > 100, "audio both ways: sent {sent} received {received}");
     marker("interop-done");
+}
+
+/// Media after the 2026-11 security fixes: the server serves uploads only to signed-in
+/// members of the chat, and the client sends credentials only to its own server.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn media_needs_a_member_session() {
+    let Some(server) = server() else { return };
+    let login = |name: &'static str| {
+        let server = server.clone();
+        async move {
+            let client = Client::new(&server, None);
+            client.login(name, PASSWORD, false).await.unwrap();
+            client
+        }
+    };
+    let alice = login("alice").await;
+    let bob = login("bob").await;
+    let carol = login("carol").await;
+    let chat = alice.create_private_chat(&bob.me().await.unwrap().id).await.unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let picture = dir.path().join("pic.png");
+    let png_bytes = png();
+    std::fs::write(&picture, &png_bytes).unwrap();
+    let clip = dir.path().join("clip.mp4");
+    let mut video = b"\x00\x00\x00\x18ftypmp42".to_vec();
+    video.extend((0..4096u32).map(|i| (i % 251) as u8));
+    std::fs::write(&clip, &video).unwrap();
+    let image = alice.send_media(&chat.id, &picture, "", None).await.unwrap();
+    let movie = alice.send_media(&chat.id, &clip, "", None).await.unwrap();
+    let image_url = alice.media_url(image.image_url.as_deref().unwrap());
+    let video_url = alice.media_url(movie.video_url.as_deref().unwrap());
+
+    // Members download with their session; an unrelated signed-in user gets 404.
+    assert_eq!(alice.download(&image_url).await.unwrap(), png_bytes);
+    assert_eq!(bob.download(&image_url).await.unwrap(), png_bytes);
+    assert_eq!(carol.download(&image_url).await.unwrap_err().status, Some(404));
+
+    // Video: whole-file download (how the app opens videos) and byte ranges (seeking).
+    let target = dir.path().join("downloaded.mp4");
+    bob.download_to(&video_url, &target, |_, _| {}).await.unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), video);
+    assert_eq!(bob.download_range(&video_url, 4, 11).await.unwrap(), (206, b"ftypmp42".to_vec()));
+    assert_eq!(carol.download_range(&video_url, 4, 11).await.unwrap_err().status, Some(404));
+
+    // Without a session there is nothing to send, and the server refuses.
+    assert!(Client::new(&server, None).download(&image_url).await.is_err());
+
+    // Logout ends media access for that client.
+    let bob_laptop = login("bob").await;
+    assert!(bob_laptop.download(&image_url).await.is_ok());
+    bob_laptop.logout().await.unwrap();
+    assert!(bob_laptop.download(&image_url).await.is_err());
+
+    // Revoking a session elsewhere ("log out other sessions") ends it too.
+    let bob_phone = login("bob").await;
+    assert!(bob_phone.download(&image_url).await.is_ok());
+    bob.logout_other_sessions().await.unwrap();
+    assert!(bob_phone.download(&image_url).await.is_err());
+    assert!(bob.download(&image_url).await.is_ok());
+
+    // A URL on any other origin is fetched without the session's credentials.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen = tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0u8; 4096];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let read = socket.read(&mut buffer).await.unwrap();
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..read]);
+        }
+        socket.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await.unwrap();
+        String::from_utf8_lossy(&request).to_lowercase()
+    });
+    let foreign = format!("http://127.0.0.1:{port}/api/uploads/messages/x.png");
+    assert!(!alice.is_server_media(&foreign));
+    assert!(alice.download(&foreign).await.is_err());
+    let request = seen.await.unwrap();
+    assert!(request.starts_with("get /api/uploads/messages/x.png"), "{request}");
+    assert!(!request.contains("authorization:") && !request.contains("cookie:"), "credentials leaked: {request}");
+}
+
+/// JWT key rotation (run by the audit's orchestration script, which restarts the backend
+/// with a new JWT_SECRET_KEY when the `ready` file appears and then creates `rotated`).
+/// Checks that nobody is logged out: a running client renews its access token from its
+/// refresh cookie, and a restarted app restores its remembered session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn jwt_rotation_keeps_sessions() {
+    let (Some(server), Ok(state)) = (server(), std::env::var("MESSENGER_IT_ROTATION_DIR")) else { return };
+    let state = std::path::PathBuf::from(state);
+    let dirs = Dirs { config: state.join("config"), cache: state.join("cache") };
+    let store = SessionStore::new(&dirs);
+
+    // A running app with "remember me", and one without (session cookie in memory only).
+    let remembered = Client::new(&server, Some(store.clone()));
+    remembered.login("alice", PASSWORD, true).await.unwrap();
+    let in_memory = Client::new(&server, None);
+    in_memory.login("bob", PASSWORD, false).await.unwrap();
+    let old_token = remembered.access_token().unwrap();
+    let old_bob_token = in_memory.access_token().unwrap();
+    let mut events = events(&in_memory);
+    connect(&mut events).await;
+
+    std::fs::write(state.join("ready"), b"").unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+    while !state.join("rotated").exists() {
+        assert!(tokio::time::Instant::now() < deadline, "backend was not restarted");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // Tokens signed with the old key are refused...
+    let raw = reqwest::Client::new();
+    for token in [&old_token, &old_bob_token] {
+        let status = raw.get(format!("{server}/api/users/me")).bearer_auth(token).send().await.unwrap().status();
+        assert_eq!(status.as_u16(), 401);
+    }
+    // ...but both running clients carry on: the first 401 triggers a refresh with the
+    // (database-backed) refresh cookie, which the key rotation does not affect.
+    assert_eq!(remembered.me().await.unwrap().username, "alice");
+    assert_eq!(in_memory.me().await.unwrap().username, "bob");
+    assert_ne!(remembered.access_token().unwrap(), old_token);
+    // Rotating the key needs a backend restart, which drops every WebSocket. The client
+    // reconnects; its old token is refused (policy close), so it refreshes and reconnects.
+    let mut reconnected = false;
+    for _ in 0..6 {
+        let attempt = tokio::time::timeout(Duration::from_secs(10), async {
+            while let Some(event) = events.next().await {
+                if matches!(event, Event::Connected(_)) {
+                    return true;
+                }
+            }
+            false
+        })
+        .await;
+        if matches!(attempt, Ok(true)) {
+            reconnected = true;
+            break;
+        }
+    }
+    assert!(reconnected, "realtime connection did not come back after the rotation");
+    let bob_id = in_memory.me().await.unwrap().id;
+    let chat = remembered.create_private_chat(&bob_id).await.unwrap();
+    remembered.send_message(&chat.id, "after rotation", None).await.unwrap();
+    wait_for(&mut events, "message over the existing socket", |event| {
+        matches!(event, Event::Server(ServerEvent::MessageNew { message }) if message.content == "after rotation").then_some(())
+    })
+    .await;
+    // A restarted app restores the remembered session from disk.
+    let restarted = Client::new(&server, Some(store.clone()));
+    restarted.restore(store.load().expect("remembered session on disk"));
+    assert_eq!(restarted.me().await.unwrap().username, "alice");
 }
