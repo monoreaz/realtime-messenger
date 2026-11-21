@@ -1,0 +1,107 @@
+---
+import BentoCard from "./BentoCard.astro";
+import Icon from "./Icon.astro";
+---
+
+<section id="features" class="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:py-28">
+  <div data-reveal class="max-w-3xl">
+    <span class="eyebrow">Features</span>
+    <h2 class="section-title mt-5">Everything a conversation needs. Nothing it doesn't.</h2>
+    <p class="section-lead">
+      Fast messaging, groups, media and calls in one calm interface, the same on the web, on Windows and on Android.
+    </p>
+  </div>
+
+  <div class="mt-12 grid grid-cols-1 gap-4 sm:mt-16 lg:grid-cols-6">
+    <BentoCard class="lg:col-span-3" eyebrow="Realtime" icon="zap" title="Messages arrive the moment you send them" index={0}>
+      Every device stays connected over a live WebSocket, so messages, unread counts, typing and online status update instantly.
+      <Fragment slot="graphic">
+        <div class="absolute inset-0 flex flex-col justify-center gap-3 px-8 sm:px-12">
+          <div class="max-w-[70%] self-start rounded-[18px] rounded-bl-md bg-bubble-in px-4 py-2.5 text-sm text-ink-1">Are you on your way?</div>
+          <div class="max-w-[70%] self-end rounded-[18px] rounded-br-md bg-bubble-out px-4 py-2.5 text-sm text-bubble-out-ink">
+            Two stops away
+            <span class="ml-1 inline-flex translate-y-0.5 text-black/45"><Icon name="check" class="size-3.5" /></span>
+          </div>
+          <div class="flex items-center gap-1 self-start rounded-full bg-bubble-in px-4 py-3">
+            <span class="size-1.5 animate-pulse rounded-full bg-ink-2"></span>
+            <span class="size-1.5 animate-pulse rounded-full bg-ink-2 [animation-delay:150ms]"></span>
+            <span class="size-1.5 animate-pulse rounded-full bg-ink-2 [animation-delay:300ms]"></span>
+          </div>
+        </div>
+      </Fragment>
+    </BentoCard>
+
+    <BentoCard class="lg:col-span-3" eyebrow="Calls" icon="phone" title="Voice calls that connect across networks" index={1}>
+      Call anyone from the browser, the desktop app or your phone. A relay server steps in when a direct connection isn't
+      possible, so calls work from home Wi-Fi to mobile data.
+      <Fragment slot="graphic">
+        <div class="absolute inset-0 grid place-items-center">
+          <div class="absolute size-72 rounded-full border border-white/[0.05]"></div>
+          <div class="absolute size-52 rounded-full border border-white/[0.07]"></div>
+          <div class="absolute size-32 rounded-full border border-white/10 bg-white/[0.02]"></div>
+          <div class="relative flex items-center gap-4 rounded-full border border-line-strong bg-glass-float px-5 py-3 backdrop-blur">
+            <span class="grid size-10 place-items-center rounded-full bg-success/15 text-success"><Icon name="phone" class="size-4" /></span>
+            <span class="flex h-7 items-center gap-[3px]">
+              {[8, 18, 12, 24, 14, 20, 9, 16, 22, 11, 6].map((h) => <span class="w-[3px] rounded-full bg-ink-2" style={`height:${h}px`} />)}
+            </span>
+            <span class="text-sm font-medium tabular-nums text-ink-2">04:12</span>
+          </div>
+        </div>
+      </Fragment>
+    </BentoCard>
+
+    <BentoCard class="lg:col-span-2" eyebrow="Media" icon="image" title="Photos and video messages" index={2}>
+      Share pictures and short video messages. Media is only delivered to people in the chat.
+      <Fragment slot="graphic">
+        <div class="absolute inset-0 grid grid-cols-3 gap-2 p-6 [mask-image:linear-gradient(to_bottom,black_55%,transparent)]">
+          <div class="col-span-2 row-span-2 rounded-2xl bg-[linear-gradient(140deg,#25304a,#5a6f9c_55%,#d8c8b0)]"></div>
+          <div class="rounded-2xl bg-[linear-gradient(160deg,#3b3a40,#7d7a74)]"></div>
+          <div class="relative rounded-2xl bg-[linear-gradient(160deg,#1f2a3c,#3f5a7e)]">
+            <span class="absolute inset-0 m-auto grid size-8 place-items-center rounded-full bg-black/40 backdrop-blur">
+              <span class="ml-0.5 size-0 border-y-[6px] border-l-[9px] border-y-transparent border-l-white"></span>
+            </span>
+          </div>
+        </div>
+      </Fragment>
+    </BentoCard>
+
+    <BentoCard class="lg:col-span-2" eyebrow="Groups" icon="users" title="Groups you choose to join" index={3}>
+      Create groups for friends, family or projects. Nobody is added without accepting the invitation first.
+      <Fragment slot="graphic">
+        <div class="absolute inset-0 grid place-items-center">
+          <div class="flex -space-x-3">
+            {["A", "M", "J", "L"].map((l, i) => (
+              <span
+                class="grid size-14 place-items-center rounded-full border-2 border-canvas text-base font-semibold text-ink-1"
+                style={`background:${["#3a4766", "#4f4a5e", "#2f4a46", "#5a4a3c"][i]}`}
+              >
+                {l}
+              </span>
+            ))}
+            <span class="grid size-14 place-items-center rounded-full border-2 border-dashed border-white/25 bg-canvas text-xl text-ink-3">+</span>
+          </div>
+          <div class="absolute bottom-16 rounded-full border border-line-strong bg-glass-float px-4 py-1.5 text-xs text-ink-2 backdrop-blur">
+            Invitation · Accept / Decline
+          </div>
+        </div>
+      </Fragment>
+    </BentoCard>
+
+    <BentoCard class="lg:col-span-2" eyebrow="Organised" icon="pin" title="Pin what matters" index={4}>
+      Keep plans, addresses and decisions at the top of a chat, and see who is online or when they were last active.
+      <Fragment slot="graphic">
+        <div class="absolute inset-0 flex flex-col justify-center gap-2.5 px-7">
+          {["Leave Friday 17:00 from the station", "Wi-Fi password is on the fridge", "Budget: 40 € per person"].map((t, i) => (
+            <div
+              class="flex items-center gap-2.5 rounded-xl border border-line bg-surface-1 px-3.5 py-2.5 text-[13px] text-ink-2"
+              style={`opacity:${1 - i * 0.25}`}
+            >
+              <Icon name="pin" class="size-3.5 shrink-0 text-accent" />
+              <span class="truncate">{t}</span>
+            </div>
+          ))}
+        </div>
+      </Fragment>
+    </BentoCard>
+  </div>
+</section>

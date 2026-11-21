@@ -1,0 +1,34 @@
+---
+import ChatMockup from "./ChatMockup.astro";
+import Icon from "./Icon.astro";
+import { SITE } from "../site";
+---
+
+<section class="relative mx-auto grid max-w-6xl items-center gap-14 px-4 pt-16 pb-20 sm:px-6 md:pt-24 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)] lg:gap-12 lg:pb-28">
+  <div class="max-w-xl">
+    <span class="eyebrow">
+      <span class="size-1.5 rounded-full bg-success"></span>
+      Web · Windows · Android
+    </span>
+    <h1 class="mt-6 text-[clamp(2.5rem,5.6vw,4.1rem)] leading-[1.02] font-semibold tracking-[-0.045em] text-balance">
+      <span class="text-gradient">Your conversations, on a server we run ourselves.</span>
+    </h1>
+    <p class="mt-6 max-w-lg text-lg leading-relaxed text-pretty text-ink-2 sm:text-xl">
+      Slaxz is a realtime messenger for chats, groups, photos, video messages and voice calls. No ads, no tracking, no
+      third-party data brokers in between.
+    </p>
+    <div class="mt-9 flex flex-wrap items-center gap-3">
+      <a href={SITE.webApp} class="btn btn-primary">
+        Open in your browser
+        <Icon name="arrowRight" class="arrow" />
+      </a>
+      <a href="#download" class="btn btn-ghost" data-hero-download>
+        <Icon name="download" class="size-4" />
+        <span data-hero-download-label>Download the app</span>
+      </a>
+    </div>
+    <p class="mt-5 text-sm text-ink-3">Free to use. One account works on every device.</p>
+  </div>
+
+  <ChatMockup />
+</section>

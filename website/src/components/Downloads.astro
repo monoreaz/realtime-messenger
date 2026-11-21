@@ -1,0 +1,121 @@
+---
+// Adapted from 21st.dev "Multi-Platform Download Grid" (shadcnspace/download-01): icon tile,
+// title, description, pill button with arrow. Data comes from GitHub Releases: a build-time
+// snapshot rendered here, refreshed live by scripts/downloads.ts.
+import Icon from "./Icon.astro";
+import releases from "../data/releases.json";
+import { describe, pickDownloads, type GhRelease } from "../lib/releases";
+import { SITE } from "../site";
+
+const dl = pickDownloads(releases as GhRelease[]);
+const win = dl.windows;
+const android = dl.android;
+---
+
+<section id="download" class="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:py-28">
+  <div data-reveal class="flex flex-col items-center text-center">
+    <span class="eyebrow">Download</span>
+    <h2 class="section-title mt-5 max-w-2xl">Start in the browser. Take it everywhere.</h2>
+    <p class="section-lead mx-auto">
+      Sign in with the same account on every device. Your chats are kept on the server and appear wherever you sign in.
+    </p>
+  </div>
+
+  <div class="mt-12 grid grid-cols-1 gap-4 sm:mt-16 md:grid-cols-2 lg:grid-cols-3" data-downloads>
+    <!-- Web -->
+    <article data-reveal style="--i:0" data-platform-card="web" class="platform-card">
+      <span class="platform-icon"><Icon name="globe" class="size-6" /></span>
+      <div class="flex flex-1 flex-col gap-1">
+        <h3 class="text-lg font-semibold">Web app</h3>
+        <p class="text-[15px] leading-relaxed text-ink-2">
+          Nothing to install. Works in any modern browser on desktop and mobile, including calls.
+        </p>
+        <p class="mt-2 text-sm text-ink-3">chat.slaxz.com</p>
+      </div>
+      <a href={SITE.webApp} class="btn btn-primary w-fit">
+        Open web app
+        <Icon name="arrowRight" class="arrow" />
+      </a>
+    </article>
+
+    <!-- Windows -->
+    <article data-reveal style="--i:1" data-platform-card="windows" class="platform-card">
+      <span class="platform-icon"><Icon name="windows" class="size-6" /></span>
+      <div class="flex flex-1 flex-col gap-1">
+        <h3 class="text-lg font-semibold">Windows</h3>
+        <p class="text-[15px] leading-relaxed text-ink-2">
+          Native desktop app for Windows 10 and 11 with notifications, calls and automatic updates.
+        </p>
+        <p class="mt-2 text-sm text-ink-3" data-dl-meta="windows">{win ? describe(win) : "See all releases on GitHub"}</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <a href={win?.url ?? SITE.releases} class="btn btn-ghost w-fit" data-dl-link="windows">
+          <Icon name="download" class="size-4" />
+          {win ? "Download installer" : "View releases"}
+        </a>
+        <a
+          href={win?.sha256Url ?? "#"}
+          class:list={["text-sm text-ink-3 underline-offset-4 hover:text-ink-1 hover:underline", { hidden: !win?.sha256Url }]}
+          data-dl-sha="windows">SHA-256</a
+        >
+      </div>
+    </article>
+
+    <!-- Android -->
+    <article data-reveal style="--i:2" data-platform-card="android" class="platform-card md:col-span-2 lg:col-span-1">
+      <span class="platform-icon"><Icon name="android" class="size-6" /></span>
+      <div class="flex flex-1 flex-col gap-1">
+        <h3 class="text-lg font-semibold">Android</h3>
+        <p class="text-[15px] leading-relaxed text-ink-2">
+          App for Android 8.0 and newer with push notifications and calls. Installed directly as an APK.
+        </p>
+        <p class="mt-2 text-sm text-ink-3" data-dl-meta="android">{android ? describe(android) : "See all releases on GitHub"}</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <a href={android?.url ?? SITE.releases} class="btn btn-ghost w-fit" data-dl-link="android">
+          <Icon name="download" class="size-4" />
+          {android ? "Download APK" : "View releases"}
+        </a>
+        <a
+          href={android?.sha256Url ?? "#"}
+          class:list={["text-sm text-ink-3 underline-offset-4 hover:text-ink-1 hover:underline", { hidden: !android?.sha256Url }]}
+          data-dl-sha="android">SHA-256</a
+        >
+      </div>
+    </article>
+  </div>
+
+  <div data-reveal class="mt-8 flex flex-col items-center justify-center gap-3 text-center text-sm text-ink-3 sm:flex-row sm:gap-6">
+    <a href={SITE.releases} class="inline-flex items-center gap-2 underline-offset-4 hover:text-ink-1 hover:underline">
+      <Icon name="github" class="size-4" />
+      All releases and release notes on GitHub
+    </a>
+    <span class="hidden sm:inline" aria-hidden="true">·</span>
+    <span>Installing the APK may require allowing installs from your browser in Android settings.</span>
+  </div>
+</section>
+
+<style>
+  @reference "../styles/global.css";
+  .platform-card {
+    @apply relative flex flex-col gap-8 overflow-hidden rounded-3xl border border-line bg-surface-1 p-7 transition-[border-color,background-color] duration-300 sm:p-8;
+  }
+  .platform-card:hover {
+    @apply border-line-strong bg-surface-2;
+  }
+  .platform-card[data-current] {
+    @apply border-accent/35;
+    box-shadow: inset 0 -30px 80px -40px rgb(143 176 247 / 0.25);
+  }
+  .platform-card[data-current]::after {
+    content: "Your device";
+    @apply absolute top-6 right-6 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent;
+  }
+  .platform-icon {
+    @apply grid size-12 place-items-center rounded-2xl border border-line-strong bg-surface-2 text-ink-1;
+  }
+</style>
+
+<script>
+  import "../scripts/downloads";
+</script>

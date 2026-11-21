@@ -1,0 +1,37 @@
+---
+// Adapted from 21st.dev "Bento" (kinfe123/bento): graphic area on top, blurred text panel
+// overlapping it, inset glow. Rewritten as a static Astro component in the Slaxz palette.
+import Icon from "./Icon.astro";
+
+interface Props {
+  eyebrow: string;
+  icon: Parameters<typeof Icon>[0]["name"];
+  title: string;
+  class?: string;
+  index?: number;
+}
+const { eyebrow, icon, title, class: cls = "", index = 0 } = Astro.props;
+---
+
+<article
+  data-reveal
+  style={`--i:${index}`}
+  class:list={[
+    "group relative isolate flex flex-col overflow-hidden rounded-3xl border border-line bg-white/[0.02]",
+    "shadow-[inset_0_-20px_80px_-20px_rgb(143_176_247/0.10)] transition-[border-color] duration-300 hover:border-line-strong",
+    cls,
+  ]}
+>
+  <div class="relative h-60 shrink-0 overflow-hidden sm:h-64" aria-hidden="true">
+    <slot name="graphic" />
+    <div class="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-canvas/90 to-transparent"></div>
+  </div>
+  <div class="relative z-10 -mt-12 flex-1 p-7 pt-6 backdrop-blur-xl sm:p-8 sm:pt-6">
+    <p class="flex items-center gap-2 text-[13px] font-medium text-accent">
+      <Icon name={icon} class="size-4" />
+      {eyebrow}
+    </p>
+    <h3 class="mt-2 text-[22px] leading-tight font-semibold tracking-tight">{title}</h3>
+    <p class="mt-2 max-w-[38rem] text-[15px] leading-relaxed text-ink-2"><slot /></p>
+  </div>
+</article>

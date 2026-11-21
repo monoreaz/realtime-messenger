@@ -1,0 +1,139 @@
+---
+// Illustrative app window in the messenger's own design language (demo content only).
+import { Image } from "astro:assets";
+import brandMark from "../assets/brand-mark.webp";
+import Icon from "./Icon.astro";
+
+const chats = [
+  { name: "Weekend trip", last: "Mia: I booked the cabin", time: "18:42", initials: "WT", active: true, unread: 0 },
+  { name: "Jonas", last: "Voice call · 4 min", time: "17:10", initials: "J", unread: 0 },
+  { name: "Design crew", last: "New pinned message", time: "15:03", initials: "DC", unread: 3 },
+  { name: "Lena", last: "Photo", time: "Tue", initials: "L", unread: 0 },
+];
+---
+
+<div class="relative" aria-hidden="true">
+  <div
+    class="pointer-events-none absolute -inset-10 rounded-[3rem] bg-[radial-gradient(closest-side,rgb(143_176_247/0.22),transparent)] blur-2xl"
+  >
+  </div>
+
+  <div class="glass relative overflow-hidden rounded-[1.75rem]">
+    <!-- Window bar -->
+    <div class="flex h-11 items-center gap-2 border-b border-line px-4">
+      <span class="size-3 rounded-full bg-white/15"></span>
+      <span class="size-3 rounded-full bg-white/15"></span>
+      <span class="size-3 rounded-full bg-white/15"></span>
+      <span class="ml-3 truncate text-xs font-medium text-ink-3">chat.slaxz.com</span>
+    </div>
+
+    <div class="grid grid-cols-[minmax(0,15rem)_minmax(0,1fr)] max-sm:grid-cols-1">
+      <!-- Chat list -->
+      <aside class="border-r border-line p-3 max-sm:hidden">
+        <div class="mb-3 flex items-center gap-2 px-1">
+          <Image src={brandMark} densities={[1, 2]} alt="" width={28} height={28} class="size-7" />
+          <span class="text-sm font-semibold">Chats</span>
+        </div>
+        <ul class="space-y-1">
+          {
+            chats.map((c) => (
+              <li
+                class:list={[
+                  "flex items-center gap-3 rounded-2xl px-2.5 py-2",
+                  c.active ? "bg-surface-3" : "",
+                ]}
+              >
+                <span class="grid size-9 shrink-0 place-items-center rounded-full bg-surface-3 text-[11px] font-semibold text-ink-2">
+                  {c.initials}
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="flex items-baseline justify-between gap-2">
+                    <span class="truncate text-[13px] font-semibold">{c.name}</span>
+                    <span class="shrink-0 text-[11px] text-ink-3">{c.time}</span>
+                  </span>
+                  <span class="flex items-center justify-between gap-2">
+                    <span class="truncate text-xs text-ink-3">{c.last}</span>
+                    {c.unread > 0 && (
+                      <span class="grid h-4.5 min-w-4.5 place-items-center rounded-full bg-accent px-1 text-[10px] font-bold text-primary-ink">
+                        {c.unread}
+                      </span>
+                    )}
+                  </span>
+                </span>
+              </li>
+            ))
+          }
+        </ul>
+      </aside>
+
+      <!-- Conversation -->
+      <section class="flex min-h-[23rem] flex-col">
+        <div class="flex items-center justify-between border-b border-line px-4 py-3">
+          <div class="flex items-center gap-3">
+            <span class="grid size-9 place-items-center rounded-full bg-surface-3 text-[11px] font-semibold text-ink-2">WT</span>
+            <span>
+              <span class="block text-sm font-semibold">Weekend trip</span>
+              <span class="flex items-center gap-1.5 text-xs text-ink-3">
+                <span class="size-1.5 rounded-full bg-success"></span>3 online
+              </span>
+            </span>
+          </div>
+          <span class="grid size-9 place-items-center rounded-full bg-surface-2 text-ink-2">
+            <Icon name="phone" class="size-4" />
+          </span>
+        </div>
+
+        <div class="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-line bg-surface-1 px-3 py-2 text-xs text-ink-2">
+          <Icon name="pin" class="size-3.5 text-accent" />
+          <span class="truncate">Pinned: Leave Friday 17:00 from the station</span>
+        </div>
+
+        <div class="flex flex-1 flex-col justify-end gap-2 px-4 py-4 text-[13.5px] leading-snug">
+          <div class="max-w-[78%] self-start rounded-[18px] rounded-bl-md bg-bubble-in px-3.5 py-2">
+            <span class="mb-0.5 block text-[11px] font-semibold text-accent">Mia</span>
+            I booked the cabin by the lake 🌲
+          </div>
+          <div class="max-w-[78%] self-start overflow-hidden rounded-[18px] rounded-bl-md bg-bubble-in p-1">
+            <div
+              class="h-24 w-48 rounded-[14px] bg-[linear-gradient(135deg,#2a3550_0%,#4b5d84_45%,#c7b9a6_100%)] max-[380px]:w-40"
+            >
+            </div>
+          </div>
+          <div class="max-w-[78%] self-end rounded-[18px] rounded-br-md bg-bubble-out px-3.5 py-2 text-bubble-out-ink">
+            Perfect. Calling you in five to sort out the car.
+            <span class="ml-1.5 inline-flex translate-y-0.5 text-[10px] text-black/45">18:44 <Icon name="check" class="ml-0.5 size-3" /></span>
+          </div>
+          <div class="flex items-center gap-2 self-start rounded-full border border-line bg-surface-1 px-3 py-1.5 text-xs text-ink-2">
+            <span class="flex gap-0.5">
+              <span class="size-1.5 animate-pulse rounded-full bg-ink-3"></span>
+              <span class="size-1.5 animate-pulse rounded-full bg-ink-3 [animation-delay:150ms]"></span>
+              <span class="size-1.5 animate-pulse rounded-full bg-ink-3 [animation-delay:300ms]"></span>
+            </span>
+            Jonas is typing
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 border-t border-line p-3">
+          <span class="h-10 flex-1 rounded-full border border-line bg-surface-1 px-4 text-[13px] leading-10 text-ink-3">Message</span>
+          <span class="grid size-10 place-items-center rounded-full bg-primary text-primary-ink">
+            <Icon name="mic" class="size-4" />
+          </span>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Floating call card -->
+  <div
+    class="glass absolute -bottom-6 -left-4 flex items-center gap-3 rounded-2xl px-4 py-3 max-md:hidden lg:-left-10"
+  >
+    <span class="relative grid size-10 place-items-center rounded-full bg-success/15 text-success">
+      <span class="absolute inset-0 animate-ping rounded-full bg-success/20 [animation-duration:2.4s]"></span>
+      <Icon name="phone" class="relative size-4" />
+    </span>
+    <span>
+      <span class="block text-sm font-semibold">Voice call with Jonas</span>
+      <span class="text-xs text-ink-3">Connected · 04:12</span>
+    </span>
+  </div>
+</div>

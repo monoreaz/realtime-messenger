@@ -1,0 +1,65 @@
+---
+import Icon from "./Icon.astro";
+import { SITE } from "../site";
+
+const faqs = [
+  {
+    q: "Is Slaxz free?",
+    a: `Yes. Create an account at <a href="${SITE.webApp}">chat.slaxz.com</a> and use it on all your devices at no cost.`,
+  },
+  {
+    q: "Are my messages end-to-end encrypted?",
+    a: "Not yet. Messages are encrypted in transit and stored on our own server, where they are protected by access controls. We say this plainly so you can decide what to share.",
+  },
+  {
+    q: "Which devices are supported?",
+    a: "Any modern browser (Chrome, Edge, Firefox, Safari), Windows 10 and 11 with the desktop app, and Android 8.0 or newer. On iPhone and iPad, use the web app in Safari.",
+  },
+  {
+    q: "Why is the Android app an APK instead of a Play Store listing?",
+    a: "Slaxz is distributed directly so releases reach you without a store in between. Download the APK from this page, open it, and allow your browser to install apps when Android asks. Updates are published the same way.",
+  },
+  {
+    q: "Do calls work outside my home network?",
+    a: "Yes. Calls try a direct connection first and fall back to our relay server, so they work between Wi-Fi and mobile data.",
+  },
+  {
+    q: "How do I verify a download?",
+    a: `Every installer is published on <a href="${SITE.releases}">GitHub Releases</a> together with a SHA-256 checksum. Compare it with <code>certutil -hashfile file.exe SHA256</code> on Windows or <code>sha256sum</code> on Linux.`,
+  },
+];
+---
+
+<section id="faq" class="mx-auto max-w-3xl px-4 py-20 sm:px-6 lg:py-28">
+  <div data-reveal class="text-center">
+    <span class="eyebrow">FAQ</span>
+    <h2 class="section-title mt-5">Questions, answered.</h2>
+  </div>
+
+  <div class="mt-12 divide-y divide-line rounded-3xl border border-line bg-surface-1">
+    {
+      faqs.map((f, i) => (
+        <details data-reveal style={`--i:${i % 3}`} class="group px-6 sm:px-7">
+          <summary class="flex min-h-16 cursor-pointer list-none items-center justify-between gap-6 py-4 text-left text-[17px] font-medium [&::-webkit-details-marker]:hidden">
+            {f.q}
+            <Icon
+              name="chevronDown"
+              class="size-5 shrink-0 text-ink-3 transition-transform duration-200 group-open:rotate-180"
+            />
+          </summary>
+          <p class="faq-answer pb-6 text-[15px] leading-relaxed text-ink-2" set:html={f.a} />
+        </details>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  @reference "../styles/global.css";
+  .faq-answer :global(a) {
+    @apply text-ink-1 underline underline-offset-4 hover:text-accent;
+  }
+  .faq-answer :global(code) {
+    @apply rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[13px] text-ink-1;
+  }
+</style>

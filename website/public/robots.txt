@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://slaxz.com/sitemap-index.xml

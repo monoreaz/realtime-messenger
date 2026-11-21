@@ -1,0 +1,52 @@
+---
+import { Image } from "astro:assets";
+import brandMark from "../assets/brand-mark.webp";
+import Icon from "./Icon.astro";
+import { SITE } from "../site";
+
+const year = new Date().getFullYear();
+---
+
+<section class="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
+  <div
+    data-reveal
+    class="glass relative overflow-hidden rounded-[2rem] px-6 py-14 text-center sm:px-12 sm:py-20"
+  >
+    <div
+      class="pointer-events-none absolute inset-x-0 -top-32 mx-auto h-64 max-w-xl rounded-full bg-accent/20 blur-3xl"
+      aria-hidden="true"
+    >
+    </div>
+    <Image src={brandMark} densities={[1, 2]} alt="" width={72} height={72} class="relative mx-auto size-18" />
+    <h2 class="section-title relative mx-auto mt-6 max-w-xl">Say hello on Slaxz.</h2>
+    <p class="relative mx-auto mt-4 max-w-md text-lg text-ink-2">Create an account in under a minute. No phone number needed.</p>
+    <div class="relative mt-9 flex flex-wrap justify-center gap-3">
+      <a href={SITE.webApp} class="btn btn-primary">
+        Open Slaxz
+        <Icon name="arrowRight" class="arrow" />
+      </a>
+      <a href="#download" class="btn btn-ghost">
+        <Icon name="download" class="size-4" />
+        Get the apps
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer class="border-t border-line">
+  <div class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 text-sm text-ink-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+    <div class="flex items-center gap-2.5">
+      <Image src={brandMark} densities={[1, 2]} alt="" width={28} height={28} class="size-7" />
+      <span class="font-semibold text-ink-2">Slaxz</span>
+      <span>© {year}</span>
+    </div>
+    <nav aria-label="Footer">
+      <ul class="flex flex-wrap gap-x-6 gap-y-2">
+        <li><a class="hover:text-ink-1" href={SITE.webApp}>Web app</a></li>
+        <li><a class="hover:text-ink-1" href="#download">Download</a></li>
+        <li><a class="hover:text-ink-1" href={SITE.releases}>Releases</a></li>
+        <li><a class="hover:text-ink-1" href={SITE.source}>Source</a></li>
+      </ul>
+    </nav>
+  </div>
+</footer>

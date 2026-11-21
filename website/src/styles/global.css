@@ -1,0 +1,150 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/* Brand tokens: same "graphite glass" palette as the messenger (frontend/src/index.css). */
+@theme {
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --color-canvas: #0d0d0f;
+  --color-ink-1: #f2f0ec;
+  --color-ink-2: #bdbab4;
+  --color-ink-3: #908d87;
+  --color-line: rgb(255 255 255 / 0.07);
+  --color-line-strong: rgb(255 255 255 / 0.12);
+  --color-surface-1: rgb(255 255 255 / 0.035);
+  --color-surface-2: rgb(255 255 255 / 0.06);
+  --color-surface-3: rgb(255 255 255 / 0.09);
+  --color-glass: rgb(21 21 24 / 0.68);
+  --color-glass-float: rgb(30 30 34 / 0.74);
+  --color-accent: #b6ccff;
+  --color-accent-strong: #8fb0f7;
+  --color-accent-soft: rgb(182 204 255 / 0.12);
+  --color-success: #86d7aa;
+  --color-primary: #f2efea;
+  --color-primary-hover: #ffffff;
+  --color-primary-ink: #151517;
+  --color-bubble-out: #e9e5df;
+  --color-bubble-out-ink: #18181a;
+  --color-bubble-in: rgb(255 255 255 / 0.075);
+
+  --radius-4xl: 2rem;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html {
+    background: var(--color-canvas);
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-canvas font-sans text-ink-1 antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: rgb(182 204 255 / 0.3);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Atmospheric backdrop behind the whole page (no images, no JS). */
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60rem 36rem at 78% -8%, rgb(143 176 247 / 0.16), transparent 62%),
+      radial-gradient(44rem 30rem at 6% 18%, rgb(242 240 236 / 0.06), transparent 60%),
+      radial-gradient(50rem 40rem at 50% 115%, rgb(143 176 247 / 0.08), transparent 60%),
+      var(--color-canvas);
+  }
+  .glass {
+    background: var(--color-glass);
+    border: 1px solid var(--color-line-strong);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.06),
+      0 30px 80px -30px rgb(0 0 0 / 0.7);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+  .eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full border border-line-strong bg-surface-1 px-3 py-1 text-[13px] font-medium text-ink-2;
+  }
+  .btn {
+    @apply inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold transition-[background-color,border-color,color,transform] duration-200 ease-out-soft select-none;
+  }
+  .btn:active {
+    transform: scale(0.98);
+  }
+  .btn-primary {
+    @apply bg-primary text-primary-ink hover:bg-primary-hover;
+  }
+  .btn-ghost {
+    @apply border border-line-strong bg-surface-1 text-ink-1 hover:border-white/20 hover:bg-surface-2;
+  }
+  .arrow {
+    @apply size-4 transition-transform duration-200 ease-out-soft;
+  }
+  .group:hover .arrow,
+  .btn:hover .arrow {
+    transform: translateX(3px);
+  }
+  .section-title {
+    @apply text-[clamp(2rem,4.2vw,3rem)] leading-[1.08] font-semibold tracking-[-0.03em] text-balance;
+  }
+  .section-lead {
+    @apply mt-4 max-w-2xl text-lg leading-relaxed text-pretty text-ink-2;
+  }
+  .text-gradient {
+    background: linear-gradient(180deg, #ffffff 10%, rgb(242 240 236 / 0.55) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* Scroll reveal (adapted from the 21st.dev motion variants: fade + 20px rise, 80ms stagger).
+   Everything is visible by default. The reveal script hides only elements that start below
+   the fold (no flash, works without JS) and reveals them as they scroll in. */
+@layer utilities {
+  [data-reveal] {
+    transition:
+      opacity 0.5s var(--ease-out-soft),
+      transform 0.5s var(--ease-out-soft);
+    transition-delay: calc(var(--i, 0) * 80ms);
+  }
+  [data-reveal].reveal-pending {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-reveal].reveal-pending {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}

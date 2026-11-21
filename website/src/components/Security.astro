@@ -1,0 +1,71 @@
+---
+import Icon from "./Icon.astro";
+
+const points = [
+  {
+    icon: "server",
+    title: "Our own hardware",
+    text: "Slaxz runs on a server we operate ourselves, not on an ad platform. Your messages are not sold, profiled or used for advertising.",
+  },
+  {
+    icon: "lock",
+    title: "Encrypted in transit",
+    text: "Every connection, from the web app to the desktop and Android apps, uses HTTPS and secure WebSockets.",
+  },
+  {
+    icon: "key",
+    title: "Strong sign-in",
+    text: "Passwords are hashed with Argon2, email addresses are verified, and sessions can be revoked on the server.",
+  },
+  {
+    icon: "shield",
+    title: "Private media",
+    text: "Photos and videos are only served to signed-in members of the conversation they were sent in.",
+  },
+  {
+    icon: "gauge",
+    title: "Abuse protection",
+    text: "Rate limits on sign-in and the API, size limits on uploads, and a strict content security policy in the browser.",
+  },
+  {
+    icon: "bell",
+    title: "Quiet by design",
+    text: "No ads and no tracking or analytics scripts on this site or in the web app. Notifications only for your conversations.",
+  },
+] as const;
+---
+
+<section id="security" class="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:py-28">
+  <div class="grid gap-12 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-16">
+    <div data-reveal class="lg:sticky lg:top-28 lg:self-start">
+      <span class="eyebrow">Security & privacy</span>
+      <h2 class="section-title mt-5">Built to keep your conversations yours.</h2>
+      <p class="section-lead">
+        Slaxz is small on purpose: one service, run by the people who build it, with security reviewed and documented in
+        the open.
+      </p>
+      <a
+        href="https://github.com/monoreaz/realtime-messenger"
+        class="mt-8 inline-flex items-center gap-2 text-[15px] font-medium text-ink-1 underline-offset-4 hover:underline"
+      >
+        <Icon name="github" class="size-4" />
+        Read the source on GitHub
+        <Icon name="arrowRight" class="arrow" />
+      </a>
+    </div>
+
+    <ul class="grid gap-4 sm:grid-cols-2">
+      {
+        points.map((p, i) => (
+          <li data-reveal style={`--i:${i % 2}`} class="rounded-3xl border border-line bg-surface-1 p-6">
+            <span class="grid size-10 place-items-center rounded-xl bg-accent-soft text-accent">
+              <Icon name={p.icon} class="size-5" />
+            </span>
+            <h3 class="mt-5 text-[17px] font-semibold">{p.title}</h3>
+            <p class="mt-2 text-[15px] leading-relaxed text-ink-2">{p.text}</p>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>

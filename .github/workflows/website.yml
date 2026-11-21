@@ -1,0 +1,29 @@
+name: Website
+# Only website changes trigger this; the website never triggers messenger workflows
+# (android.yml filters on android/**).
+on:
+  workflow_dispatch:
+  push:
+    paths: ['website/**', '.github/workflows/website.yml']
+  pull_request:
+    paths: ['website/**', '.github/workflows/website.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+        env:
+          ASTRO_TELEMETRY_DISABLED: '1'
+          GITHUB_TOKEN: ${{ github.token }}

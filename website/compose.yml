@@ -1,0 +1,32 @@
+# Website build tooling. Its own Compose project ("slaxz-website"), separate from the
+# messenger stack in ../compose.yml: building or developing the site never touches the
+# messenger's containers, images or volumes. Caddy (messenger stack) only reads the
+# published files from ./.deploy/current. See README.md.
+name: slaxz-website
+
+x-node: &node
+  image: node:24-alpine
+  # Owner of the checkout on messenger-01, so generated files are not root-owned.
+  user: "1000:1000"
+  working_dir: /app
+  volumes:
+    - .:/app
+  environment:
+    npm_config_cache: /app/.npm-cache
+    ASTRO_TELEMETRY_DISABLED: "1"
+    # Optional, raises the GitHub API limit for the release snapshot. Never commit it.
+    GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+
+services:
+  # docker compose run --rm build      (used by scripts/deploy.sh)
+  build:
+    <<: *node
+    command: ["sh", "-c", "npm ci --no-audit --no-fund && npm run build"]
+
+  # docker compose --profile dev up dev   → http://127.0.0.1:4321 (loopback only)
+  dev:
+    <<: *node
+    profiles: ["dev"]
+    ports:
+      - "127.0.0.1:4321:4321"
+    command: ["sh", "-c", "npm ci --no-audit --no-fund && npm run dev"]

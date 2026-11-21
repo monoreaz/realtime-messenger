@@ -1,0 +1,19 @@
+---
+import Base from "../layouts/Base.astro";
+import Header from "../components/Header.astro";
+import Icon from "../components/Icon.astro";
+import { SITE } from "../site";
+---
+
+<Base title="Page not found · Slaxz">
+  <Header />
+  <main id="main" class="mx-auto flex min-h-[70dvh] max-w-xl flex-col items-center justify-center px-4 text-center">
+    <p class="text-sm font-medium text-accent">404</p>
+    <h1 class="section-title mt-3">This page doesn't exist.</h1>
+    <p class="mt-4 text-lg text-ink-2">The link may be old or mistyped.</p>
+    <div class="mt-8 flex flex-wrap justify-center gap-3">
+      <a href="/" class="btn btn-primary">Back to the homepage</a>
+      <a href={SITE.webApp} class="btn btn-ghost">Open Slaxz <Icon name="arrowRight" class="arrow" /></a>
+    </div>
+  </main>
+</Base>

@@ -1,8 +1,11 @@
-# Public deployment: https://chat.slaxz.com
+# Public deployment: https://chat.slaxz.com and https://slaxz.com
 
 ```
 visitor ──https──> Cloudflare edge ──tunnel (outbound from VM)──> cloudflared ──> caddy:8081 ─┐
-tailnet ──https──> tailscale serve ──> 127.0.0.1:8080 ──────────────────────────> caddy:80  ─┴─> backend / static web app
+tailnet ──https──> tailscale serve ──> 127.0.0.1:8080 ──────────────────────────> caddy:80  ─┴─> by Host header:
+                                                                       slaxz.com → website (website/.deploy/current)
+                                                                   www.slaxz.com → 301 to slaxz.com
+                                                                     other hosts → backend / static web app
 calls   ──udp/tcp 3478, udp 49160-49259──> router 88.146.114.175 ──> coturn on 192.168.30.106
 ```
 
@@ -15,6 +18,10 @@ calls   ──udp/tcp 3478, udp 49160-49259──> router 88.146.114.175 ──>
   from `/api/calls/ice`. It relays only between its own allocations (no relaying to LAN, tailnet
   or arbitrary hosts). Tailnet clients can still use `100.91.201.40`.
 - **Tailnet access** (`https://messenger-01.tail1a26d2.ts.net`) is unchanged.
+
+- **Website** (`slaxz.com`): static build from `website/`, same Caddy and tunnel, no extra ports.
+  Deploy with `website/scripts/deploy.sh` (atomic symlink switch, no Caddy restart); details in
+  `website/README.md`. Test on the VM without DNS: `curl -H Host: slaxz.com http://127.0.0.1:8080/`.
 
 ## Files outside git (messenger-01 `~/messenger`)
 
@@ -45,6 +52,8 @@ curl -s -o /dev/null -w '%{http_code}\n' https://chat.slaxz.com/src/main.tsx  # 
 ## Cloudflare settings this setup relies on
 
 - Tunnel public hostname `chat.slaxz.com` → `HTTP` `caddy:8081` (not `:80`, not `localhost`).
+- Tunnel public hostnames `slaxz.com` and `www.slaxz.com` → `HTTP` `caddy:8081` (website; Caddy
+  picks the site by Host header). Cloudflare creates the proxied DNS records for them.
 - DNS `turn` A `88.146.114.175`, **DNS only** (grey cloud). Cloudflare can't proxy TURN.
 - Off: Rocket Loader, Email Address Obfuscation, Web Analytics auto-injection (the CSP blocks
   injected scripts), Bot Fight Mode (challenges the desktop and Android API clients).
@@ -53,6 +62,8 @@ curl -s -o /dev/null -w '%{http_code}\n' https://chat.slaxz.com/src/main.tsx  # 
 - Free plan request limit is 100 MB; the largest upload (video) is 50 MB.
 
 ## Rollback
+- Website: `website/scripts/deploy.sh --rollback` (previous build). To take it offline, delete the
+  `slaxz.com` / `www.slaxz.com` public hostnames in Cloudflare; the messenger is unaffected.
 
 - Take the site off the internet: `docker compose stop cloudflared` (or delete the public
   hostname in Cloudflare). Tailnet access is unaffected.
