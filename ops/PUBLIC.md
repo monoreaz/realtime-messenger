@@ -57,4 +57,4 @@ curl -s -o /dev/null -w '%{http_code}\n' https://chat.slaxz.com/src/main.tsx  # 
 - Take the site off the internet: `docker compose stop cloudflared` (or delete the public
   hostname in Cloudflare). Tailnet access is unaffected.
 - TURN back to tailnet only: restore `secrets/turnserver.conf.pre-public` and the old
-  `TURN_URLS` from `.env.pre-public`, then `docker compose up -d turn backend`.
+  `TURN_URLS` from `~/backups/pre-public-20261121/env`, then `docker compose up -d turn backend`.
